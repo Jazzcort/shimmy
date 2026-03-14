@@ -16,9 +16,7 @@
 	</div>
 	{#if entry}
 		<div class="flex-1 overflow-y-auto p-4">
-			<div class="font-mono text-sm leading-relaxed">
-				<JsonViewer data={entry.request} />
-			</div>
+			<JsonViewer data={entry.request} />
 			{#if entry.stderr}
 				<Separator class="my-4" />
 				<div>
