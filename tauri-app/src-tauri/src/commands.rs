@@ -1,4 +1,6 @@
 use jiff::{tz::TimeZone, Timestamp};
+use serde::Serialize;
+use serde_json::Value;
 use tauri::State;
 
 use crate::{
@@ -9,6 +11,130 @@ use crate::{
     },
     AppData,
 };
+
+#[derive(Serialize)]
+pub struct ColorizedLine {
+    pub indent: usize,
+    pub html: String,
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn colorize_json_string(json: &str) -> Vec<ColorizedLine> {
+    let bytes = json.as_bytes();
+    let len = bytes.len();
+
+    let mut result = String::with_capacity(json.len() * 2);
+    let mut i = 0;
+
+    while i < len {
+        match bytes[i] {
+            b'"' => {
+                // Find end of string (handling escapes)
+                let mut j = i + 1;
+                while j < len {
+                    if bytes[j] == b'\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if bytes[j] == b'"' {
+                        j += 1;
+                        break;
+                    }
+                    j += 1;
+                }
+                let escaped = escape_html(&json[i..j]);
+
+                // Check if key (followed by colon)
+                let mut k = j;
+                while k < len && bytes[k] == b' ' {
+                    k += 1;
+                }
+                if k < len && bytes[k] == b':' {
+                    result.push_str(r#"<span class="text-blue-300">"#);
+                } else {
+                    result.push_str(r#"<span class="text-green-400">"#);
+                }
+                result.push_str(&escaped);
+                result.push_str("</span>");
+                i = j;
+            }
+            b'n' if json[i..].starts_with("null") => {
+                result.push_str(r#"<span class="text-orange-400">null</span>"#);
+                i += 4;
+            }
+            b't' if json[i..].starts_with("true") => {
+                result.push_str(r#"<span class="text-yellow-400">true</span>"#);
+                i += 4;
+            }
+            b'f' if json[i..].starts_with("false") => {
+                result.push_str(r#"<span class="text-yellow-400">false</span>"#);
+                i += 5;
+            }
+            b'-' | b'0'..=b'9' => {
+                let mut j = i;
+                if bytes[j] == b'-' {
+                    j += 1;
+                }
+                while j < len && matches!(bytes[j], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
+                {
+                    j += 1;
+                }
+                result.push_str(r#"<span class="text-purple-400">"#);
+                result.push_str(&json[i..j]);
+                result.push_str("</span>");
+                i = j;
+            }
+            // Just to be safe
+            b'&' => {
+                result.push_str("&amp;");
+                i += 1;
+            }
+            b'<' => {
+                result.push_str("&lt;");
+                i += 1;
+            }
+            b'>' => {
+                result.push_str("&gt;");
+                i += 1;
+            }
+            _ => {
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+    }
+
+    // Split into lines and compute indent
+    let raw_lines: Vec<&str> = json.split('\n').collect();
+    let html_lines: Vec<&str> = result.split('\n').collect();
+
+    html_lines
+        .iter()
+        .enumerate()
+        .map(|(idx, html_line)| {
+            let indent = raw_lines
+                .get(idx)
+                .map(|l| l.len() - l.trim_start_matches(' ').len())
+                .unwrap_or(0);
+            let trimmed = html_line.trim_start();
+            ColorizedLine {
+                indent,
+                html: trimmed.to_string(),
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn colorize_json(data: Value) -> Vec<ColorizedLine> {
+    let json = serde_json::to_string_pretty(&data).unwrap_or_default();
+    colorize_json_string(&json)
+}
 
 #[tauri::command]
 pub async fn get_mcp_request(
@@ -94,6 +220,12 @@ pub async fn get_mcp_logs(
                         LogStatus::Success
                     }
                     MCPResponse::Fail { jsonrpc, id, error } => {
+                        response = Some(MCPResponse::Fail {
+                            jsonrpc: jsonrpc.clone(),
+                            id: id.clone(),
+                            error: error.clone(),
+                        });
+
                         stderr = Some(error.message.clone());
 
                         LogStatus::Error

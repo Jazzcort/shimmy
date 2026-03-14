@@ -11,7 +11,7 @@ use crate::shimmy_server::{
     structs::{Id, StampedMcpRequest, StampedMcpResponse},
 };
 
-use crate::commands::{get_mcp_logs, get_mcp_request, get_mcp_response};
+use crate::commands::{colorize_json, get_mcp_logs, get_mcp_request, get_mcp_response};
 
 #[derive(Clone)]
 struct AppData {
@@ -53,7 +53,8 @@ pub fn run() {
             greet,
             get_mcp_request,
             get_mcp_response,
-            get_mcp_logs
+            get_mcp_logs,
+            colorize_json
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

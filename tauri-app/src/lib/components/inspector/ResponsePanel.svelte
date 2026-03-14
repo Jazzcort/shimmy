@@ -48,9 +48,7 @@
 	{#if entry}
 		<div class="flex-1 overflow-y-auto p-4">
 			{#if entry.response}
-				<div class="font-mono text-sm leading-relaxed">
-					<JsonViewer data={entry.response} />
-				</div>
+				<JsonViewer data={entry.response} />
 			{:else}
 				<div
 					class="flex items-center justify-center py-8 text-sm text-muted-foreground"
