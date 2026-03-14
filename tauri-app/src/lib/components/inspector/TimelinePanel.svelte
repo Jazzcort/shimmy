@@ -8,12 +8,12 @@
 		onselect,
 	}: {
 		entries: InspectorEntry[];
-		selectedId: string | null;
-		onselect: (id: string) => void;
+		selectedId: number | string | null;
+		onselect: (id: string | number) => void;
 	} = $props();
 </script>
 
-<div class="flex h-full w-[280px] shrink-0 flex-col border-r border-border">
+<div class="flex h-full w-full flex-col">
 	<div class="border-b border-border px-3 py-2 h-11 flex items-center">
 		<h2
 			class="text-xs font-semibold uppercase tracking-wider text-muted-foreground"

@@ -24,4 +24,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 axum = "0.8.8"
 tokio = { workspace = true }
+uuid = { version = "1.22.0", features = ["v4", "serde"] }
+jiff = "0.2.23"
+thiserror = { workspace = true }
 

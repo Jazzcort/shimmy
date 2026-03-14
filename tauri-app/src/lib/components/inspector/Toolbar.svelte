@@ -33,8 +33,8 @@
 	</Badge>
 
 	<Select.Root type="single" bind:value={selectedConnectionId}>
-		<Select.Trigger class="w-[200px]">
-			{selectedConnection?.name ?? "Select connection"}
+		<Select.Trigger class="w-[200px] overflow-hidden">
+			<span class="truncate">{selectedConnection?.name ?? "Select connection"}</span>
 		</Select.Trigger>
 		<Select.Content>
 			{#each connections as conn (conn.id)}

@@ -1,11 +1,11 @@
 use std::ffi::OsStr;
 
 use crate::utils::{
-    convert_service_error_to_error_data, convert_to_json_object, create_jsonrpc_error,
-    create_jsonrpc_request, create_jsonrpc_response,
+    convert_error_to_error_data, convert_service_error_to_error_data, convert_text_to_error_data,
+    convert_to_json_object, create_jsonrpc_error, create_jsonrpc_request, create_jsonrpc_response,
 };
 use crate::{error::ShimmyError, utils::create_mcp_request};
-use reqwest::Client;
+use reqwest::{Client, Response};
 use rmcp::{
     ClientHandler, RoleClient, RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::ToolRouter,
@@ -59,6 +59,7 @@ pub struct Middleman {
     http_client: Client,
     mcp_client: McpClient,
     _service: OnceCell<RunningService<RoleClient, McpClientService>>,
+    _id: OnceCell<String>,
 }
 
 #[tool_router]
@@ -80,28 +81,41 @@ impl Middleman {
             http_client,
             mcp_client,
             _service: OnceCell::new(),
+            _id: OnceCell::new(),
         };
     }
 
     fn get_service(&self) -> Result<&RunningService<RoleClient, McpClientService>, ErrorData> {
-        self._service.get().ok_or(ErrorData {
-            code: ErrorCode::INTERNAL_ERROR,
-            message: "Failed trying to use service before it's initialized".into(),
-            data: None,
-        })
+        self._service.get().ok_or(convert_text_to_error_data(
+            ErrorCode::INTERNAL_ERROR,
+            "Failed trying to use service before it's initialized",
+        ))
     }
 
+    fn get_id(&self) -> Result<&String, ErrorData> {
+        self._id.get().ok_or(convert_text_to_error_data(
+            ErrorCode::INTERNAL_ERROR,
+            "Missing ID from shimmy server",
+        ))
+    }
+
+    /**
+     * This is a helper function that pipe mcp request/response to shimmy app.
+     * It does nothing if id is not initialized from shimmy app.
+     * **/
     fn send_to_shimmy_app<S, Ser>(&self, path: S, json_data: Ser)
     where
         S: Into<String>,
         Ser: Serialize + Send + 'static,
     {
-        let client = self.http_client.clone();
-        let url = format!("{}/{}", SHIMMY_SERVER, path.into());
+        if let Ok(id) = self.get_id() {
+            let client = self.http_client.clone();
+            let url = format!("{}/{}/{}", SHIMMY_SERVER, path.into(), id);
 
-        tokio::task::spawn(async move {
-            let _ = client.post(url).json(&json_data).send().await;
-        });
+            tokio::task::spawn(async move {
+                let _ = client.post(url).json(&json_data).send().await;
+            });
+        }
     }
 
     fn pipe_mcp_error_if_any<T>(
@@ -115,6 +129,44 @@ impl Middleman {
         }
 
         result
+    }
+
+    async fn start_initialize_with_shimmy_app<Ser>(
+        &self,
+        json_data: Ser,
+    ) -> Result<String, ErrorData>
+    where
+        Ser: Serialize,
+    {
+        self.http_client
+            .post(format!("{}/{}", SHIMMY_SERVER, "initialize/start"))
+            .json(&json_data)
+            .send()
+            .await
+            .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))?
+            .error_for_status()
+            .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))?
+            .text()
+            .await
+            .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))
+    }
+
+    async fn finish_initialize_with_shimmy_app<Ser>(&self, json_data: Ser) -> Result<(), ErrorData>
+    where
+        Ser: Serialize,
+    {
+        let id = self.get_id()?;
+        let _ = self
+            .http_client
+            .post(format!("{}/{}/{}", SHIMMY_SERVER, "initialize/finish", id))
+            .json(&json_data)
+            .send()
+            .await
+            .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))?
+            .error_for_status()
+            .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))?;
+
+        Ok(())
     }
 }
 
@@ -133,46 +185,65 @@ impl ServerHandler for Middleman {
         request: InitializeRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, ErrorData> {
-        let params = convert_to_json_object(&request)?;
-        let initialize_request = create_mcp_request("initialize", params);
-        let jsonrpc_request = create_jsonrpc_request(context.id, initialize_request);
+        let final_result = async {
+            let params = convert_to_json_object(&request)?;
+            let initialize_request = create_mcp_request("initialize", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), initialize_request);
 
-        self.send_to_shimmy_app("initialize", jsonrpc_request);
-
-        let mcp_client = McpClientService {
-            client_info: request.clone(),
-        };
-
-        match &self.mcp_client {
-            McpClient::Stdio(stdio_client) => {
-                let service = mcp_client
-                    .serve(
-                        TokioChildProcess::new(Command::new(&stdio_client.cmd).configure(|_cmd| {
-                            _cmd.args(&stdio_client.args);
-                        }))
-                        .map_err(|err| ErrorData {
-                            code: ErrorCode::INTERNAL_ERROR,
-                            message: err.to_string().into(),
-                            data: None,
-                        })?,
-                    )
-                    .await
-                    .map_err(|err| ErrorData {
-                        code: ErrorCode::INTERNAL_ERROR,
-                        message: err.to_string().into(),
-                        data: None,
-                    })?;
-
-                self._service.set(service);
+            // Should not crach the mcp connection if we can not connect to shimmy app
+            if let Ok(id) = self.start_initialize_with_shimmy_app(jsonrpc_request).await {
+                let _ = self._id.set(id);
             }
-        }
 
-        Ok(InitializeResult {
-            protocol_version: self.protocol_version.clone(),
-            capabilities: self.server_capabilities.clone(),
-            server_info: self.server_info.clone(),
-            instructions: self.instruction.clone(),
-        })
+            let mcp_client = McpClientService {
+                client_info: request.clone(),
+            };
+
+            let mut initialize_result: Option<InitializeResult> = None;
+
+            match &self.mcp_client {
+                McpClient::Stdio(stdio_client) => {
+                    let service = mcp_client
+                        .serve(
+                            TokioChildProcess::new(Command::new(&stdio_client.cmd).configure(
+                                |_cmd| {
+                                    _cmd.args(&stdio_client.args);
+                                },
+                            ))
+                            .map_err(|err| {
+                                convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
+                            })?,
+                        )
+                        .await
+                        .map_err(|err| {
+                            convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
+                        })?;
+
+                    initialize_result = service.peer_info().cloned();
+
+                    self._service.set(service).map_err(|err| {
+                        convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
+                    })?;
+                }
+            }
+
+            let initialize_result = initialize_result.ok_or(convert_text_to_error_data(
+                ErrorCode::INTERNAL_ERROR,
+                "Failed to fetch server information",
+            ))?;
+            let params = convert_to_json_object(&initialize_result)?;
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+
+            // Should not crach the mcp connection if we can not connect to shimmy app
+            let _ = self
+                .finish_initialize_with_shimmy_app(jsonrpc_response)
+                .await;
+
+            Ok(initialize_result)
+        }
+        .await;
+
+        self.pipe_mcp_error_if_any(context.id, final_result)
     }
 
     async fn list_tools(
@@ -331,6 +402,7 @@ impl ServerHandler for Middleman {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct McpClientService {
     client_info: ClientInfo,
 }

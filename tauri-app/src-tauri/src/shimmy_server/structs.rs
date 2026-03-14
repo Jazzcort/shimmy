@@ -1,3 +1,4 @@
+use jiff::{tz::TimeZone, Timestamp};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -27,6 +28,27 @@ pub(crate) struct MCPRequest {
     pub(crate) params: Option<Value>,
 }
 
+#[derive(Clone)]
+pub(crate) struct StampedMcpRequest {
+    pub(crate) request: MCPRequest,
+    pub(crate) timestamp: Timestamp,
+}
+
+impl StampedMcpRequest {
+    pub fn pack_for_serializing(self) -> StampedMcpRequestForSerialize {
+        StampedMcpRequestForSerialize {
+            request: self.request,
+            timestamp: self.timestamp.to_zoned(TimeZone::system()).to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub(crate) struct StampedMcpRequestForSerialize {
+    pub(crate) request: MCPRequest,
+    pub(crate) timestamp: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub(crate) struct MCPError {
     pub(crate) code: i32,
@@ -48,6 +70,27 @@ pub(crate) enum MCPResponse {
         id: Id,
         error: MCPError,
     },
+}
+
+#[derive(Clone)]
+pub(crate) struct StampedMcpResponse {
+    pub(crate) response: MCPResponse,
+    pub(crate) timestamp: Timestamp,
+}
+
+impl StampedMcpResponse {
+    pub fn pack_for_serializing(self) -> StampedMcpResponseForSerialize {
+        StampedMcpResponseForSerialize {
+            response: self.response,
+            timestamp: self.timestamp.to_zoned(TimeZone::system()).to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub(crate) struct StampedMcpResponseForSerialize {
+    pub(crate) response: MCPResponse,
+    pub(crate) timestamp: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -141,4 +184,30 @@ pub(crate) struct ListToolsResult {
 
     #[serde(flatten)]
     pub(crate) extra_fields: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InspectorEntry {
+    pub id: Id,
+    pub timestamp: String,
+    pub method: String,
+    pub status: LogStatus,
+    // Using Value for 'unknown' to allow any valid JSON
+    pub request: MCPRequest,
+    // Option<Value> handles the 'unknown | null' type
+    pub response: Option<MCPResponse>,
+    // Option<String> handles 'string | null'
+    pub stderr: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")] // Assuming status might be lowercase strings
+pub enum LogStatus {
+    Success,
+    Error,
+    Request,
+    Start,
+    Notification,
+    Pending, // Add other variants based on your LogStatus definition
 }

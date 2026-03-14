@@ -1,20 +1,30 @@
+use std::{collections::HashMap, sync::Arc};
+
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use jiff::{tz::TimeZone, Timestamp};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::Mutex;
+use uuid::Uuid;
 
-use crate::shimmy_server::structs::{MCPRequest, MCPResponse};
+use crate::shimmy_server::structs::{
+    Id, MCPRequest, MCPResponse, StampedMcpRequest, StampedMcpResponse,
+};
 
 #[derive(Clone)]
-struct ProxyState {
-    tauri_app: AppHandle,
+pub(crate) struct ProxyState {
+    pub tauri_app: AppHandle,
+    pub mcp_request_store: Arc<Mutex<HashMap<(String, Id), StampedMcpRequest>>>,
+    pub mcp_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
 }
 
-async fn mcp_initialize(
+async fn mcp_initialize_start(
     State(state): State<ProxyState>,
     Json(payload): Json<MCPRequest>,
 ) -> (StatusCode, String) {
@@ -28,73 +38,180 @@ async fn mcp_initialize(
         );
     }
 
-    println!("initialize request: {:?}", payload);
+    let id = Uuid::new_v4();
+    let time = Timestamp::now();
 
-    (StatusCode::OK, "efjieiege".to_string())
+    state.mcp_request_store.lock().await.insert(
+        (id.to_string(), payload.id.clone()),
+        StampedMcpRequest {
+            request: payload.clone(),
+            timestamp: time,
+        },
+    );
+
+    if let Err(e) = state.tauri_app.emit("mcp-initialize-start", id.to_string()) {
+        eprintln!("Failed to emit mcp-initialize: {}", e);
+
+        // TODO: Notify the frontend to refresh the entire list for this mcp server
+    }
+
+    (StatusCode::OK, id.to_string())
+}
+
+async fn mcp_initialize_finish(
+    Path(id): Path<String>,
+    State(state): State<ProxyState>,
+    Json(payload): Json<MCPResponse>,
+) -> (StatusCode, ()) {
+    eprintln!("initialize finish: {:?}", payload);
+    eprintln!("id: {}", id);
+
+    match &payload {
+        MCPResponse::Success {
+            jsonrpc,
+            id: request_id,
+            result,
+        } => {
+            let time = Timestamp::now();
+            state.mcp_response_store.lock().await.insert(
+                (id.clone(), request_id.clone()),
+                StampedMcpResponse {
+                    response: payload.clone(),
+                    timestamp: time,
+                },
+            );
+
+            if let Err(e) = state.tauri_app.emit(
+                "mcp-initialize-finish",
+                json!({
+                    "serverId": id,
+                    "requestId": request_id
+                }),
+            ) {
+                eprintln!("Failed to emit mcp-initialize: {}", e);
+
+                // TODO: Notify the frontend to refresh the entire list for this mcp server
+            }
+
+            (StatusCode::OK, ())
+        }
+        MCPResponse::Fail { jsonrpc, id, error } => (StatusCode::BAD_REQUEST, ()),
+    }
 }
 
 async fn client_mcp_request(
+    Path(id): Path<String>,
     State(state): State<ProxyState>,
     Json(payload): Json<MCPRequest>,
 ) -> (StatusCode, ()) {
     println!("client request: {:?}", payload);
+    println!("client request id: {}", id);
 
-    match payload.method.as_str() {
-        "initialize" => {}
-        "tools/call" => {}
-        _ => {}
-    }
+    let time = Timestamp::now();
+    state.mcp_request_store.lock().await.insert(
+        (id.clone(), payload.id.clone()),
+        StampedMcpRequest {
+            request: payload.clone(),
+            timestamp: time,
+        },
+    );
 
-    if let Err(e) = state.tauri_app.emit("mcp-traffic", &payload) {
+    if let Err(e) = state.tauri_app.emit(
+        "mcp-client-request",
+        json!({
+            "serverId": id,
+            "requestId": payload.id,
+        }),
+    ) {
         eprintln!("Failed to emit to frontend: {}", e);
+
+        // TODO: Notify the frontend to refresh the entire list for this mcp server
     }
 
     (StatusCode::OK, ())
 }
 
 async fn server_mcp_request(
+    Path(id): Path<String>,
     State(state): State<ProxyState>,
     Json(payload): Json<MCPRequest>,
 ) -> (StatusCode, ()) {
     println!("server request: {:?}", payload);
+    println!("server request id: {}", id);
+    let time = Timestamp::now();
 
-    match payload.method.as_str() {
-        "initialize" => {}
-        "tools/call" => {}
-        _ => {}
-    }
+    state.mcp_request_store.lock().await.insert(
+        (id.clone(), payload.id.clone()),
+        StampedMcpRequest {
+            request: payload.clone(),
+            timestamp: time,
+        },
+    );
 
-    if let Err(e) = state.tauri_app.emit("mcp-traffic", &payload) {
+    if let Err(e) = state.tauri_app.emit(
+        "mcp-server-request",
+        json!({
+            "serverId": id,
+            "requestId": payload.id,
+        }),
+    ) {
         eprintln!("Failed to emit to frontend: {}", e);
+
+        // TODO: Notify the frontend to refresh the entire list for this mcp server
     }
 
     (StatusCode::OK, ())
 }
 
 async fn mcp_response(
+    Path(id): Path<String>,
     State(state): State<ProxyState>,
     Json(payload): Json<MCPResponse>,
 ) -> (StatusCode, ()) {
     println!("response: {:?}", payload);
+    println!("response id: {}", id);
 
-    if let Err(e) = state.tauri_app.emit("mcp-traffic", &payload) {
+    let response_id = match &payload {
+        MCPResponse::Success {
+            jsonrpc,
+            id,
+            result,
+        } => id.clone(),
+        MCPResponse::Fail { jsonrpc, id, error } => id.clone(),
+    };
+
+    let time = Timestamp::now();
+    state.mcp_response_store.lock().await.insert(
+        (id.clone(), response_id.clone()),
+        StampedMcpResponse {
+            response: payload,
+            timestamp: time,
+        },
+    );
+
+    if let Err(e) = state.tauri_app.emit(
+        "mcp-response",
+        json!({
+            "serverId": id,
+            "responseId": response_id,
+        }),
+    ) {
         eprintln!("Failed to emit to frontend: {}", e);
     }
 
     (StatusCode::OK, ())
 }
 
-pub async fn spawn_server(app_handle: AppHandle) {
-    let proxy_state = ProxyState {
-        tauri_app: app_handle,
-    };
-
-    let client_route = Router::new().route("/request", post(client_mcp_request));
-    let server_route = Router::new().route("/request", post(server_mcp_request));
+pub async fn spawn_server(proxy_state: ProxyState) {
+    let client_route = Router::new().route("/request/{id}", post(client_mcp_request));
+    let server_route = Router::new().route("/request/{id}", post(server_mcp_request));
+    let initialize_route = Router::new()
+        .route("/start", post(mcp_initialize_start))
+        .route("/finish/{id}", post(mcp_initialize_finish));
 
     let router = Router::new()
-        .route("/initialize", post(mcp_initialize))
-        .route("/response", post(mcp_response))
+        .route("/response/{id}", post(mcp_response))
+        .nest("/initialize", initialize_route)
         .nest("/client", client_route)
         .nest("/server", server_route)
         .with_state(proxy_state);

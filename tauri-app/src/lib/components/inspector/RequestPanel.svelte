@@ -6,7 +6,7 @@
 	let { entry }: { entry: InspectorEntry | null } = $props();
 </script>
 
-<div class="flex h-full flex-1 flex-col border-r border-border">
+<div class="flex h-full flex-1 flex-col">
 	<div class="border-b border-border px-4 py-2 flex items-center h-11">
 		<h2
 			class="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
