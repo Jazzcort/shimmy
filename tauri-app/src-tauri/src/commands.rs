@@ -6,9 +6,10 @@ use tauri::State;
 use crate::{
     errors::ShimmyError,
     shimmy_server::structs::{
-        Id, InspectorEntry, LogStatus, MCPRequest, MCPResponse, StampedMcpRequest,
+        Id, InspectorEntry, LogStatus, MCPRequest, MCPResponse, RequestType, StampedMcpRequest,
         StampedMcpRequestForSerialize, StampedMcpResponse, StampedMcpResponseForSerialize,
     },
+    utils::create_legit_svelte_id,
     AppData,
 };
 
@@ -137,13 +138,13 @@ pub fn colorize_json(data: Value) -> Vec<ColorizedLine> {
 }
 
 #[tauri::command]
-pub async fn get_mcp_request(
+pub async fn get_mcp_client_request(
     server_id: String,
     request_id: Id,
     state: State<'_, AppData>,
 ) -> Result<StampedMcpRequestForSerialize, ShimmyError> {
     let request = state
-        .mcp_request_store
+        .mcp_client_request_store
         .lock()
         .await
         .get(&(server_id, request_id))
@@ -156,13 +157,51 @@ pub async fn get_mcp_request(
 }
 
 #[tauri::command]
-pub async fn get_mcp_response(
+pub async fn get_mcp_server_request(
+    server_id: String,
+    request_id: Id,
+    state: State<'_, AppData>,
+) -> Result<StampedMcpRequestForSerialize, ShimmyError> {
+    let request = state
+        .mcp_server_request_store
+        .lock()
+        .await
+        .get(&(server_id, request_id))
+        .ok_or(ShimmyError::Shimmy(
+            "Failed to find mcp request".to_string(),
+        ))?
+        .clone();
+
+    Ok(request.pack_for_serializing())
+}
+
+#[tauri::command]
+pub async fn get_mcp_server_response(
     server_id: String,
     response_id: Id,
     state: State<'_, AppData>,
 ) -> Result<StampedMcpResponseForSerialize, ShimmyError> {
     let response = state
-        .mcp_response_store
+        .mcp_server_response_store
+        .lock()
+        .await
+        .get(&(server_id, response_id))
+        .ok_or(ShimmyError::Shimmy(
+            "Failed to find mcp request".to_string(),
+        ))?
+        .clone();
+
+    Ok(response.pack_for_serializing())
+}
+
+#[tauri::command]
+pub async fn get_mcp_client_response(
+    server_id: String,
+    response_id: Id,
+    state: State<'_, AppData>,
+) -> Result<StampedMcpResponseForSerialize, ShimmyError> {
+    let response = state
+        .mcp_client_response_store
         .lock()
         .await
         .get(&(server_id, response_id))
@@ -179,8 +218,9 @@ pub async fn get_mcp_logs(
     server_id: String,
     state: State<'_, AppData>,
 ) -> Result<Vec<InspectorEntry>, ShimmyError> {
-    let mut requests: Vec<StampedMcpRequest> = state
-        .mcp_request_store
+    // Client requests
+    let requests: Vec<StampedMcpRequest> = state
+        .mcp_client_request_store
         .lock()
         .await
         .iter()
@@ -193,15 +233,82 @@ pub async fn get_mcp_logs(
         })
         .collect();
 
-    requests.sort_by_key(|req| req.timestamp);
+    let server_response_store_handle = state.mcp_server_response_store.lock().await;
 
-    let response_store_handle = state.mcp_response_store.lock().await;
-
-    let entries: Vec<InspectorEntry> = requests
+    let mut entries: Vec<InspectorEntry> = requests
         .into_iter()
         .map(|req| {
             let stamped_response =
-                response_store_handle.get(&(server_id.clone(), req.request.id.clone()));
+                server_response_store_handle.get(&(server_id.clone(), req.request.id.clone()));
+            let mut stderr: Option<String> = None;
+            let mut response: Option<MCPResponse> = None;
+            let status = match stamped_response {
+                Some(inner_response) => match &inner_response.response {
+                    MCPResponse::Success {
+                        jsonrpc,
+                        id,
+                        result,
+                    } => {
+                        response = Some(MCPResponse::Success {
+                            jsonrpc: jsonrpc.clone(),
+                            id: id.clone(),
+                            result: result.clone(),
+                        });
+
+                        LogStatus::Success
+                    }
+                    MCPResponse::Fail { jsonrpc, id, error } => {
+                        response = Some(MCPResponse::Fail {
+                            jsonrpc: jsonrpc.clone(),
+                            id: id.clone(),
+                            error: error.clone(),
+                        });
+
+                        stderr = Some(error.message.clone());
+
+                        LogStatus::Error
+                    }
+                },
+                None => LogStatus::Pending,
+            };
+
+            let legit_svelte_id = create_legit_svelte_id(&req.request.id);
+
+            return InspectorEntry {
+                id: legit_svelte_id,
+                timestamp: req.timestamp.clone(),
+                method: req.request.method.clone(),
+                status,
+                request: req.request,
+                request_type: RequestType::Client,
+                response,
+                stderr,
+            };
+        })
+        .collect();
+
+    // Server requests
+    let server_requests: Vec<StampedMcpRequest> = state
+        .mcp_server_request_store
+        .lock()
+        .await
+        .iter()
+        .filter_map(|((id, _), request)| {
+            if id == &server_id {
+                Some(request.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let client_response_store_handle = state.mcp_client_response_store.lock().await;
+
+    let server_request_entries: Vec<InspectorEntry> = server_requests
+        .into_iter()
+        .map(|req| {
+            let stamped_response =
+                client_response_store_handle.get(&(server_id.clone(), req.request.id.clone()));
             let mut stderr: Option<String> = None;
             let mut response: Option<MCPResponse> = None;
             let status = match &stamped_response {
@@ -234,22 +341,23 @@ pub async fn get_mcp_logs(
                 None => LogStatus::Pending,
             };
 
-            let legit_svelte_id = match &req.request.id {
-                Id::NumberId(number) => Id::NumberId(number + 1),
-                rest => rest.clone(),
-            };
+            let legit_svelte_id = create_legit_svelte_id(&req.request.id);
 
             return InspectorEntry {
                 id: legit_svelte_id,
-                timestamp: req.timestamp.to_zoned(TimeZone::system()).to_string(),
+                timestamp: req.timestamp.clone(),
                 method: req.request.method.clone(),
                 status,
                 request: req.request,
+                request_type: RequestType::Server,
                 response,
                 stderr,
             };
         })
         .collect();
+
+    entries.extend(server_request_entries);
+    entries.sort_by_key(|entry| entry.timestamp);
 
     Ok(entries)
 }

@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::fmt::Display;
 
 use crate::utils::{
     convert_error_to_error_data, convert_service_error_to_error_data, convert_text_to_error_data,
@@ -105,12 +106,12 @@ impl Middleman {
      * **/
     fn send_to_shimmy_app<S, Ser>(&self, path: S, json_data: Ser)
     where
-        S: Into<String>,
+        S: AsRef<str> + Display,
         Ser: Serialize + Send + 'static,
     {
         if let Ok(id) = self.get_id() {
             let client = self.http_client.clone();
-            let url = format!("{}/{}/{}", SHIMMY_SERVER, path.into(), id);
+            let url = format!("{}/{}/{}", SHIMMY_SERVER, path, id);
 
             tokio::task::spawn(async move {
                 let _ = client.post(url).json(&json_data).send().await;
@@ -118,14 +119,18 @@ impl Middleman {
         }
     }
 
-    fn pipe_mcp_error_if_any<T>(
+    fn pipe_mcp_error_if_any<T, S>(
         &self,
         id: RequestId,
+        path: S,
         result: Result<T, ErrorData>,
-    ) -> Result<T, ErrorData> {
+    ) -> Result<T, ErrorData>
+    where
+        S: AsRef<str> + Display,
+    {
         if let Err(err) = &result {
             let jsonrpc_error = create_jsonrpc_error(id, err.clone());
-            self.send_to_shimmy_app("response", jsonrpc_error);
+            self.send_to_shimmy_app(path, jsonrpc_error);
         }
 
         result
@@ -243,7 +248,7 @@ impl ServerHandler for Middleman {
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, final_result)
+        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn list_tools(
@@ -269,13 +274,13 @@ impl ServerHandler for Middleman {
 
             let params = convert_to_json_object(&list_tools_result)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
-            self.send_to_shimmy_app("response", jsonrpc_response);
+            self.send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(list_tools_result)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, final_result)
+        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn call_tool(
@@ -298,13 +303,13 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&call_tool_result)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("response", jsonrpc_response);
+            self.send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(call_tool_result)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, final_result)
+        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn list_resources(
@@ -331,13 +336,13 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&list_resources_request)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("response", jsonrpc_response);
+            self.send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(list_resources_request)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, final_result)
+        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn read_resource(
@@ -360,13 +365,13 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&read_resource_response)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("response", jsonrpc_response);
+            self.send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(read_resource_response)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, final_result)
+        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn list_prompts(
@@ -392,13 +397,13 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&list_prompts_response)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("response", jsonrpc_response);
+            self.send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(list_prompts_response)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, final_result)
+        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 }
 

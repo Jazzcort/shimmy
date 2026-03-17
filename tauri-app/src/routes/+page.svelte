@@ -43,7 +43,10 @@
 		let unlistenInitializeFinish: UnlistenFn | undefined =
 			undefined;
 		let unlistenClientRequest: UnlistenFn | undefined = undefined;
-		let unlistenResponse: UnlistenFn | undefined = undefined;
+		let unlistenServerResponse: UnlistenFn | undefined = undefined;
+
+		let unlistenServerRequest: UnlistenFn | undefined = undefined;
+		let unlistenClientResponse: UnlistenFn | undefined = undefined;
 
 		async function startListenInitializeStart() {
 			unlistenInitializeStart = await listen<string>(
@@ -97,7 +100,7 @@
 							const initialize_request =
 								(
 									(await invoke(
-										"get_mcp_request",
+										"get_mcp_client_request",
 										{
 											serverId: event
 												.payload
@@ -115,7 +118,7 @@
 							const initialize_response =
 								(
 									(await invoke(
-										"get_mcp_response",
+										"get_mcp_server_response",
 										{
 											serverId: event
 												.payload
@@ -176,7 +179,7 @@
 					) {
 						const stampedRequest =
 							(await invoke(
-								"get_mcp_request",
+								"get_mcp_client_request",
 								{
 									serverId: event
 										.payload
@@ -199,6 +202,7 @@
 								.request.method,
 							status: "pending",
 							request: stampedRequest.request,
+							requestType: "client",
 							response: null,
 							stderr: null,
 						};
@@ -209,9 +213,63 @@
 			);
 		}
 
-		async function startListenResponse() {
-			unlistenResponse = await listen<IncomingResponse>(
-				"mcp-response",
+		async function startListenServerRequest() {
+			unlistenServerRequest = await listen<IncomingRequest>(
+				"mcp-server-request",
+				async (event) => {
+					const legitSvelteId =
+						createLegitSvelteId(
+							event.payload.requestId,
+						);
+
+					if (
+						event.payload.serverId ===
+							selectedConnectionId &&
+						entries.every(
+							(entry) =>
+								entry.id !==
+								legitSvelteId,
+						)
+					) {
+						const stampedRequest =
+							(await invoke(
+								"get_mcp_server_request",
+								{
+									serverId: event
+										.payload
+										.serverId,
+									requestId: event
+										.payload
+										.requestId,
+								},
+							)) as StampedMcpRequest;
+
+						console.log(
+							"stamped request",
+							stampedRequest,
+						);
+
+						const entry: InspectorEntry = {
+							id: legitSvelteId,
+							timestamp: stampedRequest.timestamp,
+							method: stampedRequest
+								.request.method,
+							status: "pending",
+							request: stampedRequest.request,
+							requestType: "server",
+							response: null,
+							stderr: null,
+						};
+
+						entries.push(entry);
+					}
+				},
+			);
+		}
+
+		async function startListenServerResponse() {
+			unlistenServerResponse = await listen<IncomingResponse>(
+				"mcp-server-response",
 				async (event) => {
 					if (
 						event.payload.serverId ===
@@ -219,7 +277,65 @@
 					) {
 						const stampedResponse =
 							(await invoke(
-								"get_mcp_response",
+								"get_mcp_server_response",
+								{
+									serverId: event
+										.payload
+										.serverId,
+									responseId: event
+										.payload
+										.responseId,
+								},
+							)) as StampedMcpResponse;
+
+						console.log(
+							"stamped response",
+							stampedResponse,
+						);
+
+						const entry = entries.find(
+							(item) =>
+								(
+									item.request as JSONRPCRequest
+								).id ===
+								event.payload
+									.responseId,
+						);
+
+						if (entry) {
+							entry.response =
+								stampedResponse.response;
+
+							if (
+								isJSONRPCErrorResponse(
+									stampedResponse.response,
+								)
+							) {
+								entry.stderr =
+									stampedResponse.response.error.message;
+								entry.status =
+									"error";
+							} else {
+								entry.status =
+									"success";
+							}
+						}
+					}
+				},
+			);
+		}
+
+		async function startListenClientResponse() {
+			unlistenClientResponse = await listen<IncomingResponse>(
+				"mcp-client-response",
+				async (event) => {
+					if (
+						event.payload.serverId ===
+						selectedConnectionId
+					) {
+						const stampedResponse =
+							(await invoke(
+								"get_mcp_client_response",
 								{
 									serverId: event
 										.payload
@@ -270,7 +386,9 @@
 		startListenInitializeStart();
 		startListenInitializeFinish();
 		startListenClientRequest();
-		startListenResponse();
+		startListenServerResponse();
+		startListenServerRequest();
+		startListenClientResponse();
 
 		return () => {
 			if (unlistenInitializeStart) {
@@ -285,8 +403,16 @@
 				unlistenClientRequest();
 			}
 
-			if (unlistenResponse) {
-				unlistenResponse();
+			if (unlistenServerResponse) {
+				unlistenServerResponse();
+			}
+
+			if (unlistenServerRequest) {
+				unlistenServerRequest();
+			}
+
+			if (unlistenClientResponse) {
+				unlistenClientResponse();
 			}
 		};
 	});
@@ -338,7 +464,10 @@
 	let dragging = $state<"timeline" | "request" | null>(null);
 	let containerEl = $state<HTMLDivElement | null>(null);
 
-	function onPointerDown(handle: "timeline" | "request", e: PointerEvent) {
+	function onPointerDown(
+		handle: "timeline" | "request",
+		e: PointerEvent,
+	) {
 		dragging = handle;
 		(e.target as HTMLElement).setPointerCapture(e.pointerId);
 	}
@@ -350,12 +479,19 @@
 		const handleWidth = 8; // 4px handle * 2
 
 		if (dragging === "timeline") {
-			const newWidth = Math.max(150, Math.min(x, rect.width * 0.5));
+			const newWidth = Math.max(
+				150,
+				Math.min(x, rect.width * 0.5),
+			);
 			timelineWidth = newWidth;
 		} else if (dragging === "request") {
-			const remaining = rect.width - timelineWidth - handleWidth;
+			const remaining =
+				rect.width - timelineWidth - handleWidth;
 			const requestArea = x - timelineWidth - handleWidth / 2;
-			const ratio = Math.max(0.15, Math.min(0.85, requestArea / remaining));
+			const ratio = Math.max(
+				0.15,
+				Math.min(0.85, requestArea / remaining),
+			);
 			requestFlex = ratio;
 			responseFlex = 1 - ratio;
 		}
@@ -378,7 +514,9 @@
 		/>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			class="flex min-h-0 flex-1 {dragging ? 'select-none' : ''}"
+			class="flex min-h-0 flex-1 {dragging
+				? 'select-none'
+				: ''}"
 			bind:this={containerEl}
 			onpointermove={onPointerMove}
 			onpointerup={onPointerUp}
@@ -387,13 +525,15 @@
 				<TimelinePanel
 					entries={filteredEntries}
 					selectedId={selectedEntryId}
-					onselect={(id) => (selectedEntryId = id)}
+					onselect={(id) =>
+						(selectedEntryId = id)}
 				/>
 			</div>
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="w-1 cursor-col-resize bg-border hover:bg-primary/50 transition-colors flex-shrink-0"
-				onpointerdown={(e) => onPointerDown("timeline", e)}
+				onpointerdown={(e) =>
+					onPointerDown("timeline", e)}
 			></div>
 			<div style="flex: {requestFlex}; min-width: 0;">
 				<RequestPanel entry={selectedEntry} />
@@ -401,7 +541,8 @@
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="w-1 cursor-col-resize bg-border hover:bg-primary/50 transition-colors flex-shrink-0"
-				onpointerdown={(e) => onPointerDown("request", e)}
+				onpointerdown={(e) =>
+					onPointerDown("request", e)}
 			></div>
 			<div style="flex: {responseFlex}; min-width: 0;">
 				<ResponsePanel entry={selectedEntry} />
