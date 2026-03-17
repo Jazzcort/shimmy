@@ -49,10 +49,8 @@ pub enum Commands {
 
     /// Spawn the MCP server over HTTP/SSE
     Http {
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-
-        #[arg(short, long, default_value_t = 8080)]
-        port: u16,
+        /// URL of the MCP server (e.g., http://127.0.0.1:8080)
+        #[arg(required = true)]
+        url: String,
     },
 }

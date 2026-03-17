@@ -15,22 +15,18 @@ pub fn create_mcp_request<S>(method: S, params: JsonObject) -> Request
 where
     S: Into<String>,
 {
-    Request {
-        method: method.into(),
-        params,
-        extensions: Extensions::new(),
-    }
+    let mut req = Request::new(params);
+    req.method = method.into();
+    req
 }
 
 pub fn create_mcp_notification<S>(method: S, params: JsonObject) -> Notification
 where
     S: Into<String>,
 {
-    Notification {
-        method: method.into(),
-        params,
-        extensions: Extensions::new(),
-    }
+    let mut notif = Notification::new(params);
+    notif.method = method.into();
+    notif
 }
 
 pub fn create_jsonrpc_request(id: RequestId, request: Request) -> JsonRpcRequest {
