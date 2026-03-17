@@ -1,30 +1,34 @@
 use std::ffi::OsStr;
 use std::fmt::Display;
+use std::sync::Arc;
 
 use crate::utils::{
     convert_error_to_error_data, convert_service_error_to_error_data, convert_text_to_error_data,
-    convert_to_json_object, create_jsonrpc_error, create_jsonrpc_request, create_jsonrpc_response,
+    convert_to_json_object, create_jsonrpc_error, create_jsonrpc_notification,
+    create_jsonrpc_request, create_jsonrpc_response, create_mcp_notification,
 };
 use crate::{error::ShimmyError, utils::create_mcp_request};
 use reqwest::{Client, Response};
+use rmcp::model::JsonRpcNotification;
 use rmcp::{
     ClientHandler, RoleClient, RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::ToolRouter,
     model::{
         Annotated, CallToolRequestParams, CallToolResult, ClientInfo, ErrorCode, ErrorData,
         Extensions, Implementation, InitializeRequestParams, InitializeResult, JsonRpcRequest,
-        JsonRpcVersion2_0, ListPromptsResult, ListResourcesResult, ListToolsResult,
-        PaginatedRequestParams, Prompt, ProtocolVersion, RawResource, ReadResourceRequestParams,
-        ReadResourceResult, Request, RequestId, ServerCapabilities, ServerInfo, Tool,
+        JsonRpcVersion2_0, ListPromptsResult, ListResourcesResult, ListToolsResult, Notification,
+        NotificationNoParam, PaginatedRequestParams, Prompt, ProtocolVersion, RawResource,
+        ReadResourceRequestParams, ReadResourceResult, Request, RequestId, ServerCapabilities,
+        ServerInfo, Tool,
     },
-    service::{RequestContext, RunningService, ServiceError},
+    service::{NotificationContext, RequestContext, RunningService, ServiceError},
     tool_handler, tool_router,
     transport::{ConfigureCommandExt, TokioChildProcess, stdio},
 };
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::process::Command;
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, mpsc};
 
 const SHIMMY_SERVER: &str = "http://127.0.0.1:13579";
 
@@ -57,42 +61,18 @@ pub struct Middleman {
     instruction: Option<String>,
 
     tool_router: ToolRouter<Self>,
-    http_client: Client,
+    shimmy_client: Arc<ShimmyClient>,
     mcp_client: McpClient,
     _service: OnceCell<RunningService<RoleClient, McpClientService>>,
+}
+
+#[derive(Debug)]
+struct ShimmyClient {
+    http_client: Client,
     _id: OnceCell<String>,
 }
 
-#[tool_router]
-impl Middleman {
-    fn new(
-        protocol_version: ProtocolVersion,
-        server_info: Implementation,
-        server_capabilities: ServerCapabilities,
-        instruction: Option<String>,
-        mcp_client: McpClient,
-        http_client: Client,
-    ) -> Self {
-        return Self {
-            protocol_version,
-            server_info,
-            server_capabilities,
-            instruction,
-            tool_router: Self::tool_router(),
-            http_client,
-            mcp_client,
-            _service: OnceCell::new(),
-            _id: OnceCell::new(),
-        };
-    }
-
-    fn get_service(&self) -> Result<&RunningService<RoleClient, McpClientService>, ErrorData> {
-        self._service.get().ok_or(convert_text_to_error_data(
-            ErrorCode::INTERNAL_ERROR,
-            "Failed trying to use service before it's initialized",
-        ))
-    }
-
+impl ShimmyClient {
     fn get_id(&self) -> Result<&String, ErrorData> {
         self._id.get().ok_or(convert_text_to_error_data(
             ErrorCode::INTERNAL_ERROR,
@@ -135,6 +115,40 @@ impl Middleman {
 
         result
     }
+}
+
+#[tool_router]
+impl Middleman {
+    fn new(
+        protocol_version: ProtocolVersion,
+        server_info: Implementation,
+        server_capabilities: ServerCapabilities,
+        instruction: Option<String>,
+        mcp_client: McpClient,
+        http_client: Client,
+    ) -> Self {
+        return Self {
+            protocol_version,
+            server_info,
+            server_capabilities,
+            instruction,
+            tool_router: Self::tool_router(),
+            // To share with client service
+            shimmy_client: Arc::new(ShimmyClient {
+                http_client,
+                _id: OnceCell::new(),
+            }),
+            mcp_client,
+            _service: OnceCell::new(),
+        };
+    }
+
+    fn get_service(&self) -> Result<&RunningService<RoleClient, McpClientService>, ErrorData> {
+        self._service.get().ok_or(convert_text_to_error_data(
+            ErrorCode::INTERNAL_ERROR,
+            "Failed trying to use service before it's initialized",
+        ))
+    }
 
     async fn start_initialize_with_shimmy_app<Ser>(
         &self,
@@ -143,7 +157,8 @@ impl Middleman {
     where
         Ser: Serialize,
     {
-        self.http_client
+        self.shimmy_client
+            .http_client
             .post(format!("{}/{}", SHIMMY_SERVER, "initialize/start"))
             .json(&json_data)
             .send()
@@ -160,8 +175,9 @@ impl Middleman {
     where
         Ser: Serialize,
     {
-        let id = self.get_id()?;
+        let id = self.shimmy_client.get_id()?;
         let _ = self
+            .shimmy_client
             .http_client
             .post(format!("{}/{}/{}", SHIMMY_SERVER, "initialize/finish", id))
             .json(&json_data)
@@ -197,11 +213,12 @@ impl ServerHandler for Middleman {
 
             // Should not crach the mcp connection if we can not connect to shimmy app
             if let Ok(id) = self.start_initialize_with_shimmy_app(jsonrpc_request).await {
-                let _ = self._id.set(id);
+                let _ = self.shimmy_client._id.set(id);
             }
 
             let mcp_client = McpClientService {
                 client_info: request.clone(),
+                shimmy_client: self.shimmy_client.clone(),
             };
 
             let mut initialize_result: Option<InitializeResult> = None;
@@ -248,7 +265,8 @@ impl ServerHandler for Middleman {
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn list_tools(
@@ -264,7 +282,8 @@ impl ServerHandler for Middleman {
             let list_tools_request = create_mcp_request("tools/list", params);
             let jsonrpc_request = create_jsonrpc_request(context.id.clone(), list_tools_request);
 
-            self.send_to_shimmy_app("client/request", jsonrpc_request);
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
 
             let list_tools_result = self
                 .get_service()?
@@ -274,13 +293,15 @@ impl ServerHandler for Middleman {
 
             let params = convert_to_json_object(&list_tools_result)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
-            self.send_to_shimmy_app("server/response", jsonrpc_response);
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(list_tools_result)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn call_tool(
@@ -293,7 +314,8 @@ impl ServerHandler for Middleman {
             let call_tool_request = create_mcp_request("tools/call", params);
             let jsonrpc_request = create_jsonrpc_request(context.id.clone(), call_tool_request);
 
-            self.send_to_shimmy_app("client/request", jsonrpc_request);
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
 
             let call_tool_result = self
                 .get_service()?
@@ -303,13 +325,15 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&call_tool_result)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("server/response", jsonrpc_response);
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(call_tool_result)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn list_resources(
@@ -326,7 +350,8 @@ impl ServerHandler for Middleman {
             let jsonrpc_request =
                 create_jsonrpc_request(context.id.clone(), list_resources_request);
 
-            self.send_to_shimmy_app("client/request", jsonrpc_request);
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
 
             let list_resources_request = self
                 .get_service()?
@@ -336,13 +361,15 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&list_resources_request)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("server/response", jsonrpc_response);
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(list_resources_request)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn read_resource(
@@ -355,7 +382,8 @@ impl ServerHandler for Middleman {
             let read_resource_request = create_mcp_request("resources/read", params);
             let jsonrpc_request = create_jsonrpc_request(context.id.clone(), read_resource_request);
 
-            self.send_to_shimmy_app("client/request", jsonrpc_request);
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
 
             let read_resource_response = self
                 .get_service()?
@@ -365,13 +393,15 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&read_resource_response)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("server/response", jsonrpc_response);
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(read_resource_response)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn list_prompts(
@@ -387,7 +417,8 @@ impl ServerHandler for Middleman {
             let list_prompts_request = create_mcp_request("prompts/list", params);
             let jsonrpc_request = create_jsonrpc_request(context.id.clone(), list_prompts_request);
 
-            self.send_to_shimmy_app("client/request", jsonrpc_request);
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
 
             let list_prompts_response = self
                 .get_service()?
@@ -397,24 +428,82 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(&list_prompts_response)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
-            self.send_to_shimmy_app("server/response", jsonrpc_response);
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
 
             Ok(list_prompts_response)
         }
         .await;
 
-        self.pipe_mcp_error_if_any(context.id, "server/response", final_result)
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+    }
+
+    async fn ping(&self, context: RequestContext<RoleServer>) -> Result<(), ErrorData> {
+        let params = serde_json::Map::new();
+        let ping_request = create_mcp_request("ping", params);
+        let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request);
+
+        self.shimmy_client
+            .send_to_shimmy_app("client/request", jsonrpc_request);
+
+        // check if the service exists
+        let _ = self.get_service()?;
+
+        let params = serde_json::Map::new();
+        let jsonrpc_response = create_jsonrpc_response(context.id, params);
+        self.shimmy_client
+            .send_to_shimmy_app("server/response", jsonrpc_response);
+
+        Ok(())
+    }
+
+    async fn on_initialized(&self, _context: NotificationContext<RoleServer>) -> () {
+        let params = serde_json::Map::new();
+        let initialized_notification = create_mcp_notification("notifications/initialized", params);
+        let jsonrpc_notification = create_jsonrpc_notification(initialized_notification);
+
+        self.shimmy_client
+            .send_to_shimmy_app("client/notification", jsonrpc_notification);
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct McpClientService {
     client_info: ClientInfo,
+    shimmy_client: Arc<ShimmyClient>,
 }
 
 impl ClientHandler for McpClientService {
     fn get_info(&self) -> ClientInfo {
         self.client_info.clone()
+    }
+
+    async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) -> () {
+        let params = serde_json::Map::new();
+        let tool_list_changed_notification =
+            create_mcp_notification("notifications/tools/list_changed", params);
+        let jsonrpc_notification = create_jsonrpc_notification(tool_list_changed_notification);
+
+        self.shimmy_client
+            .send_to_shimmy_app("server/notification", jsonrpc_notification);
+    }
+
+    async fn ping(&self, context: RequestContext<RoleClient>) -> Result<(), ErrorData> {
+        let params = serde_json::Map::new();
+        let ping_request = create_mcp_request("ping", params);
+        let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request);
+
+        self.shimmy_client
+            .send_to_shimmy_app("server/request", jsonrpc_request);
+
+        let params = serde_json::Map::new();
+        let jsonrpc_response = create_jsonrpc_response(context.id, params);
+
+        self.shimmy_client
+            .send_to_shimmy_app("client/response", jsonrpc_response);
+
+        Ok(())
     }
 }
 

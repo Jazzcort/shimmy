@@ -2,8 +2,8 @@ use std::borrow::Cow;
 
 use rmcp::{
     model::{
-        ErrorCode, ErrorData, Extensions, JsonObject, JsonRpcError, JsonRpcRequest,
-        JsonRpcResponse, JsonRpcVersion2_0, Request, RequestId,
+        ErrorCode, ErrorData, Extensions, JsonObject, JsonRpcError, JsonRpcNotification,
+        JsonRpcRequest, JsonRpcResponse, JsonRpcVersion2_0, Notification, Request, RequestId,
     },
     service::ServiceError,
 };
@@ -16,6 +16,17 @@ where
     S: Into<String>,
 {
     Request {
+        method: method.into(),
+        params,
+        extensions: Extensions::new(),
+    }
+}
+
+pub fn create_mcp_notification<S>(method: S, params: JsonObject) -> Notification
+where
+    S: Into<String>,
+{
+    Notification {
         method: method.into(),
         params,
         extensions: Extensions::new(),
@@ -43,6 +54,13 @@ pub fn create_jsonrpc_error(id: RequestId, error: ErrorData) -> JsonRpcError {
         jsonrpc: JsonRpcVersion2_0,
         id,
         error,
+    }
+}
+
+pub fn create_jsonrpc_notification(notification: Notification) -> JsonRpcNotification {
+    JsonRpcNotification {
+        jsonrpc: JsonRpcVersion2_0,
+        notification,
     }
 }
 
