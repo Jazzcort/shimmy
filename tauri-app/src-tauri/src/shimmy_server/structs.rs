@@ -1,5 +1,5 @@
 use jiff::{tz::TimeZone, Timestamp};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
 pub(crate) static JSON_RPC: &str = "2.0";
@@ -186,19 +186,29 @@ pub(crate) struct ListToolsResult {
     pub(crate) extra_fields: Value,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InspectorEntry {
     pub id: Id,
-    pub timestamp: String,
+
+    #[serde(serialize_with = "serialize_timestamp_as_string")]
+    pub timestamp: Timestamp,
+
     pub method: String,
     pub status: LogStatus,
-    // Using Value for 'unknown' to allow any valid JSON
     pub request: MCPRequest,
-    // Option<Value> handles the 'unknown | null' type
+    pub request_type: RequestType,
     pub response: Option<MCPResponse>,
     // Option<String> handles 'string | null'
     pub stderr: Option<String>,
+}
+
+fn serialize_timestamp_as_string<S>(timestamp: &Timestamp, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let s = timestamp.to_zoned(TimeZone::system()).to_string();
+    serializer.serialize_str(&s)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -210,4 +220,11 @@ pub enum LogStatus {
     Start,
     Notification,
     Pending, // Add other variants based on your LogStatus definition
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")] // Assuming status might be lowercase strings
+pub enum RequestType {
+    Client,
+    Server,
 }

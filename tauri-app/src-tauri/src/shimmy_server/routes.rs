@@ -20,8 +20,10 @@ use crate::shimmy_server::structs::{
 #[derive(Clone)]
 pub(crate) struct ProxyState {
     pub tauri_app: AppHandle,
-    pub mcp_request_store: Arc<Mutex<HashMap<(String, Id), StampedMcpRequest>>>,
-    pub mcp_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
+    pub mcp_client_request_store: Arc<Mutex<HashMap<(String, Id), StampedMcpRequest>>>,
+    pub mcp_server_request_store: Arc<Mutex<HashMap<(String, Id), StampedMcpRequest>>>,
+    pub mcp_server_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
+    pub mcp_client_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
 }
 
 async fn mcp_initialize_start(
@@ -41,7 +43,7 @@ async fn mcp_initialize_start(
     let id = Uuid::new_v4();
     let time = Timestamp::now();
 
-    state.mcp_request_store.lock().await.insert(
+    state.mcp_client_request_store.lock().await.insert(
         (id.to_string(), payload.id.clone()),
         StampedMcpRequest {
             request: payload.clone(),
@@ -73,7 +75,7 @@ async fn mcp_initialize_finish(
             result,
         } => {
             let time = Timestamp::now();
-            state.mcp_response_store.lock().await.insert(
+            state.mcp_server_response_store.lock().await.insert(
                 (id.clone(), request_id.clone()),
                 StampedMcpResponse {
                     response: payload.clone(),
@@ -108,7 +110,7 @@ async fn client_mcp_request(
     println!("client request id: {}", id);
 
     let time = Timestamp::now();
-    state.mcp_request_store.lock().await.insert(
+    state.mcp_client_request_store.lock().await.insert(
         (id.clone(), payload.id.clone()),
         StampedMcpRequest {
             request: payload.clone(),
@@ -140,7 +142,7 @@ async fn server_mcp_request(
     println!("server request id: {}", id);
     let time = Timestamp::now();
 
-    state.mcp_request_store.lock().await.insert(
+    state.mcp_server_request_store.lock().await.insert(
         (id.clone(), payload.id.clone()),
         StampedMcpRequest {
             request: payload.clone(),
@@ -163,7 +165,7 @@ async fn server_mcp_request(
     (StatusCode::OK, ())
 }
 
-async fn mcp_response(
+async fn client_mcp_response(
     Path(id): Path<String>,
     State(state): State<ProxyState>,
     Json(payload): Json<MCPResponse>,
@@ -181,7 +183,7 @@ async fn mcp_response(
     };
 
     let time = Timestamp::now();
-    state.mcp_response_store.lock().await.insert(
+    state.mcp_client_response_store.lock().await.insert(
         (id.clone(), response_id.clone()),
         StampedMcpResponse {
             response: payload,
@@ -190,7 +192,46 @@ async fn mcp_response(
     );
 
     if let Err(e) = state.tauri_app.emit(
-        "mcp-response",
+        "mcp-client-response",
+        json!({
+            "serverId": id,
+            "responseId": response_id,
+        }),
+    ) {
+        eprintln!("Failed to emit to frontend: {}", e);
+    }
+
+    (StatusCode::OK, ())
+}
+
+async fn server_mcp_response(
+    Path(id): Path<String>,
+    State(state): State<ProxyState>,
+    Json(payload): Json<MCPResponse>,
+) -> (StatusCode, ()) {
+    println!("response: {:?}", payload);
+    println!("response id: {}", id);
+
+    let response_id = match &payload {
+        MCPResponse::Success {
+            jsonrpc,
+            id,
+            result,
+        } => id.clone(),
+        MCPResponse::Fail { jsonrpc, id, error } => id.clone(),
+    };
+
+    let time = Timestamp::now();
+    state.mcp_server_response_store.lock().await.insert(
+        (id.clone(), response_id.clone()),
+        StampedMcpResponse {
+            response: payload,
+            timestamp: time,
+        },
+    );
+
+    if let Err(e) = state.tauri_app.emit(
+        "mcp-server-response",
         json!({
             "serverId": id,
             "responseId": response_id,
@@ -203,14 +244,17 @@ async fn mcp_response(
 }
 
 pub async fn spawn_server(proxy_state: ProxyState) {
-    let client_route = Router::new().route("/request/{id}", post(client_mcp_request));
-    let server_route = Router::new().route("/request/{id}", post(server_mcp_request));
+    let client_route = Router::new()
+        .route("/request/{id}", post(client_mcp_request))
+        .route("/response/{id}", post(client_mcp_response));
+    let server_route = Router::new()
+        .route("/request/{id}", post(server_mcp_request))
+        .route("/response/{id}", post(server_mcp_response));
     let initialize_route = Router::new()
         .route("/start", post(mcp_initialize_start))
         .route("/finish/{id}", post(mcp_initialize_finish));
 
     let router = Router::new()
-        .route("/response/{id}", post(mcp_response))
         .nest("/initialize", initialize_route)
         .nest("/client", client_route)
         .nest("/server", server_route)

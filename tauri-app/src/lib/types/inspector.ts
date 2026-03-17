@@ -1,4 +1,5 @@
 export type LogStatus = "success" | "error" | "notification" | "pending";
+export type RequestType = "server" | "client";
 
 export interface InspectorEntry {
   id: string | number;
@@ -6,6 +7,7 @@ export interface InspectorEntry {
   method: string;
   status: LogStatus;
   request: unknown;
+  requestType: RequestType;
   response: unknown | null;
   stderr: string | null;
 }
