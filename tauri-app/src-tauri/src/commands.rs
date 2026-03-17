@@ -6,8 +6,9 @@ use tauri::State;
 use crate::{
     errors::ShimmyError,
     shimmy_server::structs::{
-        Id, InspectorEntry, LogStatus, MCPRequest, MCPResponse, RequestType, StampedMcpRequest,
-        StampedMcpRequestForSerialize, StampedMcpResponse, StampedMcpResponseForSerialize,
+        Id, InspectorEntry, LogStatus, MCPRequest, MCPResponse, RequestType,
+        StampedMcpNotification, StampedMcpRequest, StampedMcpRequestForSerialize,
+        StampedMcpResponse, StampedMcpResponseForSerialize,
     },
     utils::create_legit_svelte_id,
     AppData,
@@ -187,7 +188,7 @@ pub async fn get_mcp_server_response(
         .await
         .get(&(server_id, response_id))
         .ok_or(ShimmyError::Shimmy(
-            "Failed to find mcp request".to_string(),
+            "Failed to find mcp response".to_string(),
         ))?
         .clone();
 
@@ -206,11 +207,49 @@ pub async fn get_mcp_client_response(
         .await
         .get(&(server_id, response_id))
         .ok_or(ShimmyError::Shimmy(
-            "Failed to find mcp request".to_string(),
+            "Failed to find mcp response".to_string(),
         ))?
         .clone();
 
     Ok(response.pack_for_serializing())
+}
+
+#[tauri::command]
+pub async fn get_mcp_client_notification(
+    server_id: String,
+    notification_id: Id,
+    state: State<'_, AppData>,
+) -> Result<StampedMcpNotification, ShimmyError> {
+    let notification = state
+        .mcp_client_notification_store
+        .lock()
+        .await
+        .get(&(server_id, notification_id))
+        .ok_or(ShimmyError::Shimmy(
+            "Failed to find mcp notification".to_string(),
+        ))?
+        .clone();
+
+    Ok(notification)
+}
+
+#[tauri::command]
+pub async fn get_mcp_server_notification(
+    server_id: String,
+    notification_id: Id,
+    state: State<'_, AppData>,
+) -> Result<StampedMcpNotification, ShimmyError> {
+    let notification = state
+        .mcp_server_notification_store
+        .lock()
+        .await
+        .get(&(server_id, notification_id))
+        .ok_or(ShimmyError::Shimmy(
+            "Failed to find mcp notification".to_string(),
+        ))?
+        .clone();
+
+    Ok(notification)
 }
 
 #[tauri::command]
@@ -274,16 +313,17 @@ pub async fn get_mcp_logs(
 
             let legit_svelte_id = create_legit_svelte_id(&req.request.id);
 
-            return InspectorEntry {
+            InspectorEntry {
                 id: legit_svelte_id,
                 timestamp: req.timestamp.clone(),
                 method: req.request.method.clone(),
                 status,
-                request: req.request,
+                request: serde_json::to_value(req.request)
+                    .expect("This serialization should never fail"),
                 request_type: RequestType::Client,
                 response,
                 stderr,
-            };
+            }
         })
         .collect();
 
@@ -343,20 +383,89 @@ pub async fn get_mcp_logs(
 
             let legit_svelte_id = create_legit_svelte_id(&req.request.id);
 
-            return InspectorEntry {
+            InspectorEntry {
                 id: legit_svelte_id,
                 timestamp: req.timestamp.clone(),
                 method: req.request.method.clone(),
                 status,
-                request: req.request,
+                request: serde_json::to_value(&req.request)
+                    .expect("This serialization should never fail"),
                 request_type: RequestType::Server,
                 response,
                 stderr,
-            };
+            }
+        })
+        .collect();
+
+    let client_notifications: Vec<(Id, StampedMcpNotification)> = state
+        .mcp_client_notification_store
+        .lock()
+        .await
+        .iter()
+        .filter_map(|((id, notification_id), notification)| {
+            if id == &server_id {
+                Some((notification_id.clone(), notification.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let client_nofitication_entries: Vec<InspectorEntry> = client_notifications
+        .into_iter()
+        .map(|(notification_id, notification)| {
+            let legit_svelte_id = create_legit_svelte_id(&notification_id);
+
+            InspectorEntry {
+                id: legit_svelte_id,
+                timestamp: notification.timestamp.clone(),
+                method: notification.notification.method.clone(),
+                status: LogStatus::Notification,
+                request: serde_json::to_value(&notification.notification)
+                    .expect("This serialization should never fail"),
+                request_type: RequestType::Client,
+                response: None,
+                stderr: None,
+            }
+        })
+        .collect();
+
+    let server_notifications: Vec<(Id, StampedMcpNotification)> = state
+        .mcp_server_notification_store
+        .lock()
+        .await
+        .iter()
+        .filter_map(|((id, notification_id), notification)| {
+            if id == &server_id {
+                Some((notification_id.clone(), notification.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let server_nofitication_entries: Vec<InspectorEntry> = server_notifications
+        .into_iter()
+        .map(|(notification_id, notification)| {
+            let legit_svelte_id = create_legit_svelte_id(&notification_id);
+
+            InspectorEntry {
+                id: legit_svelte_id,
+                timestamp: notification.timestamp.clone(),
+                method: notification.notification.method.clone(),
+                status: LogStatus::Notification,
+                request: serde_json::to_value(&notification.notification)
+                    .expect("This serialization should never fail"),
+                request_type: RequestType::Server,
+                response: None,
+                stderr: None,
+            }
         })
         .collect();
 
     entries.extend(server_request_entries);
+    entries.extend(client_nofitication_entries);
+    entries.extend(server_nofitication_entries);
     entries.sort_by_key(|entry| entry.timestamp);
 
     Ok(entries)

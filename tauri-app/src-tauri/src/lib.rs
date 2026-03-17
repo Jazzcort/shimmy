@@ -9,19 +9,23 @@ use tokio::sync::Mutex;
 
 use crate::shimmy_server::{
     routes::{spawn_server, ProxyState},
-    structs::{Id, StampedMcpRequest, StampedMcpResponse},
+    structs::{Id, StampedMcpNotification, StampedMcpRequest, StampedMcpResponse},
 };
 
 use crate::commands::{
     colorize_json, get_mcp_client_request, get_mcp_logs, get_mcp_server_response,
 };
 
+// mcp_<origin>_<data type>_store
+// i.e., mcp_client_notification_store stores all the notifications sent from client side
 #[derive(Clone)]
 struct AppData {
     mcp_client_request_store: Arc<Mutex<HashMap<(String, Id), StampedMcpRequest>>>,
     mcp_server_request_store: Arc<Mutex<HashMap<(String, Id), StampedMcpRequest>>>,
     mcp_server_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
     mcp_client_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
+    mcp_client_notification_store: Arc<Mutex<HashMap<(String, Id), StampedMcpNotification>>>,
+    mcp_server_notification_store: Arc<Mutex<HashMap<(String, Id), StampedMcpNotification>>>,
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -40,6 +44,8 @@ pub fn run() {
                 mcp_server_request_store: Arc::new(Mutex::new(HashMap::new())),
                 mcp_server_response_store: Arc::new(Mutex::new(HashMap::new())),
                 mcp_client_response_store: Arc::new(Mutex::new(HashMap::new())),
+                mcp_client_notification_store: Arc::new(Mutex::new(HashMap::new())),
+                mcp_server_notification_store: Arc::new(Mutex::new(HashMap::new())),
             };
             app.manage(app_data.clone());
 
@@ -49,6 +55,8 @@ pub fn run() {
                 mcp_server_request_store: app_data.mcp_server_request_store,
                 mcp_server_response_store: app_data.mcp_server_response_store,
                 mcp_client_response_store: app_data.mcp_client_response_store,
+                mcp_client_notification_store: app_data.mcp_client_notification_store,
+                mcp_server_notification_store: app_data.mcp_server_notification_store,
             };
 
             tauri::async_runtime::spawn(async move {
