@@ -14,7 +14,8 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::shimmy_server::structs::{
-    Id, MCPRequest, MCPResponse, StampedMcpRequest, StampedMcpResponse,
+    Id, MCPNotification, MCPRequest, MCPResponse, StampedMcpNotification, StampedMcpRequest,
+    StampedMcpResponse,
 };
 
 #[derive(Clone)]
@@ -24,6 +25,8 @@ pub(crate) struct ProxyState {
     pub mcp_server_request_store: Arc<Mutex<HashMap<(String, Id), StampedMcpRequest>>>,
     pub mcp_server_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
     pub mcp_client_response_store: Arc<Mutex<HashMap<(String, Id), StampedMcpResponse>>>,
+    pub mcp_client_notification_store: Arc<Mutex<HashMap<(String, Id), StampedMcpNotification>>>,
+    pub mcp_server_notification_store: Arc<Mutex<HashMap<(String, Id), StampedMcpNotification>>>,
 }
 
 async fn mcp_initialize_start(
@@ -243,13 +246,73 @@ async fn server_mcp_response(
     (StatusCode::OK, ())
 }
 
+async fn client_mcp_notification(
+    Path(id): Path<String>,
+    State(state): State<ProxyState>,
+    Json(payload): Json<MCPNotification>,
+) -> (StatusCode, ()) {
+    let notification_id = Id::StringId(Uuid::new_v4().to_string());
+    let time = Timestamp::now();
+
+    state.mcp_client_notification_store.lock().await.insert(
+        (id.clone(), notification_id.clone()),
+        StampedMcpNotification {
+            notification: payload,
+            timestamp: time,
+        },
+    );
+
+    if let Err(e) = state.tauri_app.emit(
+        "mcp-client-notification",
+        json!({
+            "serverId": id,
+            "notificationId": notification_id,
+        }),
+    ) {
+        eprintln!("Failed to emit to frontend: {}", e);
+    }
+
+    (StatusCode::OK, ())
+}
+
+async fn server_mcp_notification(
+    Path(id): Path<String>,
+    State(state): State<ProxyState>,
+    Json(payload): Json<MCPNotification>,
+) -> (StatusCode, ()) {
+    let notification_id = Id::StringId(Uuid::new_v4().to_string());
+    let time = Timestamp::now();
+
+    state.mcp_server_notification_store.lock().await.insert(
+        (id.clone(), notification_id.clone()),
+        StampedMcpNotification {
+            notification: payload,
+            timestamp: time,
+        },
+    );
+
+    if let Err(e) = state.tauri_app.emit(
+        "mcp-server-notification",
+        json!({
+            "serverId": id,
+            "notificationId": notification_id,
+        }),
+    ) {
+        eprintln!("Failed to emit to frontend: {}", e);
+    }
+
+    (StatusCode::OK, ())
+}
+
 pub async fn spawn_server(proxy_state: ProxyState) {
     let client_route = Router::new()
         .route("/request/{id}", post(client_mcp_request))
-        .route("/response/{id}", post(client_mcp_response));
+        .route("/response/{id}", post(client_mcp_response))
+        .route("/notification/{id}", post(client_mcp_notification));
     let server_route = Router::new()
         .route("/request/{id}", post(server_mcp_request))
-        .route("/response/{id}", post(server_mcp_response));
+        .route("/response/{id}", post(server_mcp_response))
+        .route("/notification/{id}", post(server_mcp_notification));
     let initialize_route = Router::new()
         .route("/start", post(mcp_initialize_start))
         .route("/finish/{id}", post(mcp_initialize_finish));

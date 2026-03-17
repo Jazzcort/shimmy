@@ -7,9 +7,11 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { onMount } from "svelte";
 	import type {
+		IncomingNotification,
 		IncomingRequest,
 		IncomingResponse,
 		McpInitializeFinish,
+		StampedMcpNotification,
 		StampedMcpRequest,
 		StampedMcpResponse,
 	} from "$lib/types/emittedMessages";
@@ -47,6 +49,11 @@
 
 		let unlistenServerRequest: UnlistenFn | undefined = undefined;
 		let unlistenClientResponse: UnlistenFn | undefined = undefined;
+
+		let unlistenClientNotification: UnlistenFn | undefined =
+			undefined;
+		let unlistenServerNotification: UnlistenFn | undefined =
+			undefined;
 
 		async function startListenInitializeStart() {
 			unlistenInitializeStart = await listen<string>(
@@ -383,12 +390,151 @@
 			);
 		}
 
+		async function startListenClientNotification() {
+			unlistenClientNotification =
+				await listen<IncomingNotification>(
+					"mcp-client-notification",
+					async (event) => {
+						console.log(
+							"client notification",
+							event,
+						);
+						const legitSvelteId =
+							createLegitSvelteId(
+								event.payload
+									.notificationId,
+							);
+
+						if (
+							event.payload
+								.serverId ===
+								selectedConnectionId &&
+							entries.every(
+								(entry) =>
+									entry.id !==
+									legitSvelteId,
+							)
+						) {
+							const stampedNotification =
+								(await invoke(
+									"get_mcp_client_notification",
+									{
+										serverId: event
+											.payload
+											.serverId,
+										notificationId:
+											event
+												.payload
+												.notificationId,
+									},
+								)) as StampedMcpNotification;
+
+							console.log(
+								"stamped notification",
+								stampedNotification,
+							);
+
+							const entry: InspectorEntry =
+								{
+									id: legitSvelteId,
+									timestamp: stampedNotification.timestamp,
+									method: stampedNotification
+										.notification
+										.method,
+									status: "notification",
+									request: stampedNotification.notification,
+									requestType:
+										"client",
+									response: null,
+									stderr: null,
+								};
+
+							entries.push(entry);
+						}
+					},
+				);
+		}
+
+		async function startListenServerNotification() {
+			unlistenServerNotification =
+				await listen<IncomingNotification>(
+					"mcp-server-notification",
+					async (event) => {
+						console.log(
+							"server notification",
+							event,
+						);
+						const legitSvelteId =
+							createLegitSvelteId(
+								event.payload
+									.notificationId,
+							);
+
+						if (
+							event.payload
+								.serverId ===
+								selectedConnectionId &&
+							entries.every(
+								(entry) =>
+									entry.id !==
+									legitSvelteId,
+							)
+						) {
+							const stampedNotification =
+								(await invoke(
+									"get_mcp_server_notification",
+									{
+										serverId: event
+											.payload
+											.serverId,
+										notificationId:
+											event
+												.payload
+												.notificationId,
+									},
+								)) as StampedMcpNotification;
+
+							console.log(
+								"stamped notification",
+								stampedNotification,
+							);
+
+							const entry: InspectorEntry =
+								{
+									id: legitSvelteId,
+									timestamp: stampedNotification.timestamp,
+									method: stampedNotification
+										.notification
+										.method,
+									status: "notification",
+									request: stampedNotification.notification,
+									requestType:
+										"server",
+									response: null,
+									stderr: null,
+								};
+
+							entries.push(entry);
+						}
+					},
+				);
+		}
+
+		// TODO: Can optimize to have events like
+		// UpdateEvent {
+		//   serverId: ...,
+		//   dataId: ...,
+		//   origin: "client" | "server",
+		//   dataType: "request" | "response" | "notification"
+		// }
 		startListenInitializeStart();
 		startListenInitializeFinish();
 		startListenClientRequest();
 		startListenServerResponse();
 		startListenServerRequest();
 		startListenClientResponse();
+		startListenClientNotification();
+		startListenServerNotification();
 
 		return () => {
 			if (unlistenInitializeStart) {
@@ -413,6 +559,14 @@
 
 			if (unlistenClientResponse) {
 				unlistenClientResponse();
+			}
+
+			if (unlistenClientNotification) {
+				unlistenClientNotification();
+			}
+
+			if (unlistenServerNotification) {
+				unlistenServerNotification();
 			}
 		};
 	});

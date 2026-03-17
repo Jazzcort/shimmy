@@ -110,6 +110,14 @@ pub(crate) struct MCPNotification {
     pub(crate) params: Option<Value>,
 }
 
+#[derive(Clone, Serialize)]
+pub(crate) struct StampedMcpNotification {
+    pub notification: MCPNotification,
+
+    #[serde(serialize_with = "serialize_timestamp_as_string")]
+    pub timestamp: Timestamp,
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub(crate) enum Role {
     #[serde(rename = "user")]
@@ -196,7 +204,8 @@ pub struct InspectorEntry {
 
     pub method: String,
     pub status: LogStatus,
-    pub request: MCPRequest,
+    // MCPRequest | MCPNotification
+    pub request: Value,
     pub request_type: RequestType,
     pub response: Option<MCPResponse>,
     // Option<String> handles 'string | null'
