@@ -101,8 +101,23 @@ async fn mcp_initialize_finish(
 
             (StatusCode::OK, ())
         }
-        // TODO: Send mcp-initialize-fail to remove the connection from pending list
-        MCPResponse::Fail { jsonrpc, id, error } => (StatusCode::BAD_REQUEST, ()),
+        MCPResponse::Fail {
+            jsonrpc,
+            id: request_id,
+            error,
+        } => {
+            if let Err(e) = state.tauri_app.emit(
+                "mcp-initialize-fail",
+                json!({
+                    "serverId": id,
+                    "requestId": request_id,
+                }),
+            ) {
+                eprintln!("Failed to emit mcp-initialize-fail: {}", e);
+            }
+
+            (StatusCode::BAD_REQUEST, ())
+        }
     }
 }
 

@@ -30,6 +30,7 @@
 		type JSONRPCResultResponse,
 	} from "@modelcontextprotocol/sdk/types.js";
 	import { createLegitSvelteId } from "$lib/utils";
+	import { toast } from "svelte-sonner";
 
 	let connections = $state<McpConnection[]>([]);
 	let entries = $state<InspectorEntry[]>([]);
@@ -44,6 +45,7 @@
 		let unlistenInitializeStart: UnlistenFn | undefined = undefined;
 		let unlistenInitializeFinish: UnlistenFn | undefined =
 			undefined;
+		let unlistenInitializeFail: UnlistenFn | undefined = undefined;
 		let unlistenClientRequest: UnlistenFn | undefined = undefined;
 		let unlistenServerResponse: UnlistenFn | undefined = undefined;
 
@@ -61,6 +63,7 @@
 				async (event) => {
 					console.log("initializing!!", event);
 					pendingConnections.push(event.payload);
+					toast.info("Connecting to a shimmy client...");
 				},
 			);
 		}
@@ -142,6 +145,7 @@
 								initialize_response.result as InitializeResult
 							).serverInfo.name;
 
+							const connectionName = `${clientName}-${serverName}`;
 							connections.push({
 								transport: event
 									.payload
@@ -149,8 +153,12 @@
 								id: event
 									.payload
 									.serverId,
-								name: `${clientName}-${serverName}`,
+								name: connectionName,
 							});
+
+							toast.success(
+								`Connection "${connectionName}" is established`,
+							);
 
 							if (
 								!selectedConnectionId
@@ -166,6 +174,31 @@
 						}
 					},
 				);
+		}
+
+		async function startListenInitializeFail() {
+			unlistenInitializeFail = await listen<{
+				serverId: string;
+				requestId: number | string;
+			}>(
+				"mcp-initialize-fail",
+				async (event) => {
+					console.log(
+						"initialize failed!!",
+						event,
+					);
+					pendingConnections =
+						pendingConnections.filter(
+							(id) =>
+								id !==
+								event.payload
+									.serverId,
+						);
+					toast.error(
+						"A connection has failed",
+					);
+				},
+			);
 		}
 
 		async function startListenClientRequest() {
@@ -544,6 +577,7 @@
 		// }
 		startListenInitializeStart();
 		startListenInitializeFinish();
+		startListenInitializeFail();
 		startListenClientRequest();
 		startListenServerResponse();
 		startListenServerRequest();
@@ -558,6 +592,10 @@
 
 			if (unlistenInitializeFinish) {
 				unlistenInitializeFinish();
+			}
+
+			if (unlistenInitializeFail) {
+				unlistenInitializeFail();
 			}
 
 			if (unlistenClientRequest) {
@@ -696,6 +734,15 @@
 					selectedId={selectedEntryId}
 					onselect={(id) =>
 						(selectedEntryId = id)}
+					onrefresh={() => {
+						if (selectedConnectionId) {
+							invoke("get_mcp_logs", {
+								serverId: selectedConnectionId,
+							}).then((data) => {
+								entries = data as InspectorEntry[];
+							});
+						}
+					}}
 				/>
 			</div>
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
