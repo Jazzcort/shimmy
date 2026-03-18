@@ -11,8 +11,11 @@ use rmcp::{
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
 
-use crate::cli::{Cli, Commands};
 use crate::middleman::spawn_middleman_with_stdio;
+use crate::{
+    cli::{Cli, Commands},
+    middleman::spawn_middleman_with_http,
+};
 
 struct McpClient {
     name: String,
@@ -39,11 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             spawn_middleman_with_stdio(server_command, server_args).await?;
         }
-        Commands::Http { host, port } => {
+        Commands::Http { url } => {
             if cli.verbose {
-                eprintln!("Starting HTTP server at http://{}:{}", host, port);
+                eprintln!("Starting HTTP server at {}", url);
             }
-            // TODO: Initialize HTTP server
+
+            spawn_middleman_with_http(url).await?;
         }
     }
 

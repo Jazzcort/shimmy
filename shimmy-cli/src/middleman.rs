@@ -23,7 +23,7 @@ use rmcp::{
     },
     service::{NotificationContext, RequestContext, RunningService, ServiceError},
     tool_handler, tool_router,
-    transport::{ConfigureCommandExt, TokioChildProcess, stdio},
+    transport::{ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess, stdio},
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -34,11 +34,16 @@ const SHIMMY_SERVER: &str = "http://127.0.0.1:13579";
 
 pub enum McpClient {
     Stdio(McpStdioClient),
+    Http(McpHttpClient),
 }
 
 pub struct McpStdioClient {
     cmd: String,
     args: Vec<String>,
+}
+
+pub struct McpHttpClient {
+    url: String,
 }
 
 impl McpStdioClient {
@@ -55,11 +60,6 @@ impl McpStdioClient {
 }
 
 pub struct Middleman {
-    protocol_version: ProtocolVersion,
-    server_info: Implementation,
-    server_capabilities: ServerCapabilities,
-    instruction: Option<String>,
-
     tool_router: ToolRouter<Self>,
     shimmy_client: Arc<ShimmyClient>,
     mcp_client: McpClient,
@@ -119,19 +119,8 @@ impl ShimmyClient {
 
 #[tool_router]
 impl Middleman {
-    fn new(
-        protocol_version: ProtocolVersion,
-        server_info: Implementation,
-        server_capabilities: ServerCapabilities,
-        instruction: Option<String>,
-        mcp_client: McpClient,
-        http_client: Client,
-    ) -> Self {
+    fn new(mcp_client: McpClient, http_client: Client) -> Self {
         return Self {
-            protocol_version,
-            server_info,
-            server_capabilities,
-            instruction,
             tool_router: Self::tool_router(),
             // To share with client service
             shimmy_client: Arc::new(ShimmyClient {
@@ -192,13 +181,10 @@ impl Middleman {
 }
 
 impl ServerHandler for Middleman {
+    // This does not matter. We will gather these information from the real server during
+    // initialize
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: self.protocol_version.clone(),
-            server_info: self.server_info.clone(),
-            capabilities: self.server_capabilities.clone(),
-            instructions: self.instruction.clone(),
-        }
+        ServerInfo::default()
     }
 
     async fn initialize(
@@ -236,6 +222,22 @@ impl ServerHandler for Middleman {
                                 convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
                             })?,
                         )
+                        .await
+                        .map_err(|err| {
+                            convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
+                        })?;
+
+                    initialize_result = service.peer_info().cloned();
+
+                    self._service.set(service).map_err(|err| {
+                        convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
+                    })?;
+                }
+                McpClient::Http(http_client) => {
+                    let service = mcp_client
+                        .serve(StreamableHttpClientTransport::from_uri(
+                            http_client.url.clone(),
+                        ))
                         .await
                         .map_err(|err| {
                             convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
@@ -514,29 +516,22 @@ where
 {
     let mcp_client = McpClient::Stdio(McpStdioClient::new(cmd.clone(), args.clone()));
     let http_client = Client::builder().build()?;
-    let service = ()
-        .serve(TokioChildProcess::new(Command::new(cmd).configure(
-            |_cmd| {
-                _cmd.args(args);
-            },
-        ))?)
-        .await?;
+    let middleman = Middleman::new(mcp_client, http_client);
 
-    let initialize_request = service
-        .peer_info()
-        .ok_or(ShimmyError::Middleman("Missing server info".to_string()))?
-        .clone();
+    let middleman_service = middleman
+        .serve(stdio())
+        .await
+        .inspect_err(|e| println!("Error starting server: {}", e))?;
 
-    drop(service);
+    middleman_service.waiting().await?;
 
-    let middleman = Middleman::new(
-        initialize_request.protocol_version,
-        initialize_request.server_info,
-        initialize_request.capabilities,
-        initialize_request.instructions,
-        mcp_client,
-        http_client,
-    );
+    Ok(())
+}
+
+pub async fn spawn_middleman_with_http(url: String) -> Result<(), ShimmyError> {
+    let mcp_client = McpClient::Http(McpHttpClient { url });
+    let http_client = Client::builder().build()?;
+    let middleman = Middleman::new(mcp_client, http_client);
 
     let middleman_service = middleman
         .serve(stdio())
