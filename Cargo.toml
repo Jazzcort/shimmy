@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "shimmy-cli",
     "tauri-app/src-tauri",
+    "shimmy-common"
 ]
 
 [workspace.dependencies]

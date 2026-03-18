@@ -15,5 +15,5 @@ export interface InspectorEntry {
 export interface McpConnection {
   id: string;
   name: string;
-  transport: "stdio" | "sse" | "streamable-http";
+  transport: string;
 }

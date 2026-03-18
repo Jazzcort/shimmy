@@ -143,7 +143,9 @@
 							).serverInfo.name;
 
 							connections.push({
-								transport: "stdio",
+								transport: event
+									.payload
+									.transport,
 								id: event
 									.payload
 									.serverId,

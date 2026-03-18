@@ -14,8 +14,8 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::shimmy_server::structs::{
-    Id, MCPNotification, MCPRequest, MCPResponse, StampedMcpNotification, StampedMcpRequest,
-    StampedMcpResponse,
+    ConnectionInitializeFinishRequest, Id, MCPNotification, MCPRequest, MCPResponse,
+    StampedMcpNotification, StampedMcpRequest, StampedMcpResponse,
 };
 
 #[derive(Clone)]
@@ -66,12 +66,12 @@ async fn mcp_initialize_start(
 async fn mcp_initialize_finish(
     Path(id): Path<String>,
     State(state): State<ProxyState>,
-    Json(payload): Json<MCPResponse>,
+    Json(payload): Json<ConnectionInitializeFinishRequest>,
 ) -> (StatusCode, ()) {
     eprintln!("initialize finish: {:?}", payload);
     eprintln!("id: {}", id);
 
-    match &payload {
+    match &payload.response {
         MCPResponse::Success {
             jsonrpc,
             id: request_id,
@@ -81,7 +81,7 @@ async fn mcp_initialize_finish(
             state.mcp_server_response_store.lock().await.insert(
                 (id.clone(), request_id.clone()),
                 StampedMcpResponse {
-                    response: payload.clone(),
+                    response: payload.response.clone(),
                     timestamp: time,
                 },
             );
@@ -90,7 +90,8 @@ async fn mcp_initialize_finish(
                 "mcp-initialize-finish",
                 json!({
                     "serverId": id,
-                    "requestId": request_id
+                    "requestId": request_id,
+                    "transport": payload.transport
                 }),
             ) {
                 eprintln!("Failed to emit mcp-initialize: {}", e);
@@ -100,6 +101,7 @@ async fn mcp_initialize_finish(
 
             (StatusCode::OK, ())
         }
+        // TODO: Send mcp-initialize-fail to remove the connection from pending list
         MCPResponse::Fail { jsonrpc, id, error } => (StatusCode::BAD_REQUEST, ()),
     }
 }

@@ -27,4 +27,5 @@ tokio = { workspace = true }
 uuid = { version = "1.22.0", features = ["v4", "serde"] }
 jiff = "0.2.23"
 thiserror = { workspace = true }
+shimmy-common = { path = "../../shimmy-common" }
 

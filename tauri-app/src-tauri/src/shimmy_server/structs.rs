@@ -1,6 +1,7 @@
 use jiff::{tz::TimeZone, Timestamp};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
+use shimmy_common::common_structs::McpServerTransport;
 
 pub(crate) static JSON_RPC: &str = "2.0";
 
@@ -236,4 +237,10 @@ pub enum LogStatus {
 pub enum RequestType {
     Client,
     Server,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConnectionInitializeFinishRequest {
+    pub response: MCPResponse,
+    pub transport: McpServerTransport,
 }

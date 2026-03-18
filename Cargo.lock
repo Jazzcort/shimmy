@@ -4051,6 +4051,7 @@ dependencies = [
  "jiff",
  "serde",
  "serde_json",
+ "shimmy-common",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
@@ -4068,8 +4069,17 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "shimmy-common",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "shimmy-common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

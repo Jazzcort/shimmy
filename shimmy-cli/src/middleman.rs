@@ -9,7 +9,7 @@ use crate::utils::{
 };
 use crate::{error::ShimmyError, utils::create_mcp_request};
 use reqwest::{Client, Response};
-use rmcp::model::JsonRpcNotification;
+use rmcp::model::{JsonRpcNotification, JsonRpcResponse};
 use rmcp::{
     ClientHandler, RoleClient, RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::ToolRouter,
@@ -27,6 +27,7 @@ use rmcp::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
+use shimmy_common::common_structs::McpServerTransport;
 use tokio::process::Command;
 use tokio::sync::{OnceCell, mpsc};
 
@@ -35,6 +36,15 @@ const SHIMMY_SERVER: &str = "http://127.0.0.1:13579";
 pub enum McpClient {
     Stdio(McpStdioClient),
     Http(McpHttpClient),
+}
+
+impl McpClient {
+    pub fn transport(&self) -> McpServerTransport {
+        match self {
+            McpClient::Stdio(_) => McpServerTransport::Stdio,
+            McpClient::Http(_) => McpServerTransport::Http,
+        }
+    }
 }
 
 pub struct McpStdioClient {
@@ -117,6 +127,12 @@ impl ShimmyClient {
     }
 }
 
+#[derive(Serialize)]
+struct InitializeFinishRequest {
+    response: JsonRpcResponse,
+    transport: McpServerTransport,
+}
+
 #[tool_router]
 impl Middleman {
     fn new(mcp_client: McpClient, http_client: Client) -> Self {
@@ -139,13 +155,10 @@ impl Middleman {
         ))
     }
 
-    async fn start_initialize_with_shimmy_app<Ser>(
+    async fn start_initialize_with_shimmy_app(
         &self,
-        json_data: Ser,
-    ) -> Result<String, ErrorData>
-    where
-        Ser: Serialize,
-    {
+        json_data: JsonRpcRequest,
+    ) -> Result<String, ErrorData> {
         self.shimmy_client
             .http_client
             .post(format!("{}/{}", SHIMMY_SERVER, "initialize/start"))
@@ -160,16 +173,21 @@ impl Middleman {
             .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))
     }
 
-    async fn finish_initialize_with_shimmy_app<Ser>(&self, json_data: Ser) -> Result<(), ErrorData>
-    where
-        Ser: Serialize,
-    {
+    async fn finish_initialize_with_shimmy_app(
+        &self,
+        jsonrpc_response: JsonRpcResponse,
+    ) -> Result<(), ErrorData> {
         let id = self.shimmy_client.get_id()?;
+        let initialize_finish_request = InitializeFinishRequest {
+            response: jsonrpc_response,
+            transport: self.mcp_client.transport(),
+        };
+
         let _ = self
             .shimmy_client
             .http_client
             .post(format!("{}/{}/{}", SHIMMY_SERVER, "initialize/finish", id))
-            .json(&json_data)
+            .json(&initialize_finish_request)
             .send()
             .await
             .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))?

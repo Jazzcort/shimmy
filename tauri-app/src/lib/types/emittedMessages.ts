@@ -7,6 +7,7 @@ import type {
 export interface McpInitializeFinish {
   serverId: string;
   requestId: number | string;
+  transport: string;
 }
 
 export interface StampedMcpRequest {

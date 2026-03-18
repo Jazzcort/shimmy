@@ -43,6 +43,12 @@
 		</Select.Content>
 	</Select.Root>
 
+	{#if selectedConnection}
+		<Badge variant="secondary" class="text-xs uppercase">
+			{selectedConnection.transport}
+		</Badge>
+	{/if}
+
 	<div class="relative flex-1">
 		<FilterIcon class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 		<Input
