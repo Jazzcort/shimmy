@@ -198,7 +198,7 @@ pub(crate) struct ListToolsResult {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InspectorEntry {
-    pub id: Id,
+    pub id: String,
 
     #[serde(serialize_with = "serialize_timestamp_as_string")]
     pub timestamp: Timestamp,

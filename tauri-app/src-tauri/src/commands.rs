@@ -311,7 +311,7 @@ pub async fn get_mcp_logs(
                 None => LogStatus::Pending,
             };
 
-            let legit_svelte_id = create_legit_svelte_id(&req.request.id);
+            let legit_svelte_id = create_legit_svelte_id(&req.request.id, RequestType::Client);
 
             InspectorEntry {
                 id: legit_svelte_id,
@@ -381,7 +381,7 @@ pub async fn get_mcp_logs(
                 None => LogStatus::Pending,
             };
 
-            let legit_svelte_id = create_legit_svelte_id(&req.request.id);
+            let legit_svelte_id = create_legit_svelte_id(&req.request.id, RequestType::Server);
 
             InspectorEntry {
                 id: legit_svelte_id,
@@ -414,7 +414,7 @@ pub async fn get_mcp_logs(
     let client_nofitication_entries: Vec<InspectorEntry> = client_notifications
         .into_iter()
         .map(|(notification_id, notification)| {
-            let legit_svelte_id = create_legit_svelte_id(&notification_id);
+            let legit_svelte_id = create_legit_svelte_id(&notification_id, RequestType::Client);
 
             InspectorEntry {
                 id: legit_svelte_id,
@@ -447,7 +447,7 @@ pub async fn get_mcp_logs(
     let server_nofitication_entries: Vec<InspectorEntry> = server_notifications
         .into_iter()
         .map(|(notification_id, notification)| {
-            let legit_svelte_id = create_legit_svelte_id(&notification_id);
+            let legit_svelte_id = create_legit_svelte_id(&notification_id, RequestType::Server);
 
             InspectorEntry {
                 id: legit_svelte_id,

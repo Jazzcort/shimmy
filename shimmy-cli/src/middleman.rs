@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::utils::{
     convert_error_to_error_data, convert_service_error_to_error_data, convert_text_to_error_data,
     convert_to_json_object, create_jsonrpc_error, create_jsonrpc_notification,
-    create_jsonrpc_request, create_jsonrpc_response, create_mcp_notification,
+    create_jsonrpc_request, create_jsonrpc_response, create_mcp_notification, sleep_for_seconds,
 };
 use crate::{error::ShimmyError, utils::create_mcp_request};
 use reqwest::{Client, Response};
@@ -472,6 +472,10 @@ impl ServerHandler for Middleman {
 
         let params = serde_json::Map::new();
         let jsonrpc_response = create_jsonrpc_response(context.id, params);
+
+        // To make sure the response arrives later than the request
+        sleep_for_seconds(1).await;
+
         self.shimmy_client
             .send_to_shimmy_app("server/response", jsonrpc_response);
 
@@ -519,6 +523,9 @@ impl ClientHandler for McpClientService {
 
         let params = serde_json::Map::new();
         let jsonrpc_response = create_jsonrpc_response(context.id, params);
+
+        // To make sure the response arrives later than the request
+        sleep_for_seconds(1).await;
 
         self.shimmy_client
             .send_to_shimmy_app("client/response", jsonrpc_response);

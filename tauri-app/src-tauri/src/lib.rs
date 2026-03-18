@@ -13,7 +13,8 @@ use crate::shimmy_server::{
 };
 
 use crate::commands::{
-    colorize_json, get_mcp_client_request, get_mcp_logs, get_mcp_server_response,
+    colorize_json, get_mcp_client_notification, get_mcp_client_request, get_mcp_client_response,
+    get_mcp_logs, get_mcp_server_notification, get_mcp_server_request, get_mcp_server_response,
 };
 
 // mcp_<origin>_<data type>_store
@@ -70,6 +71,10 @@ pub fn run() {
             greet,
             get_mcp_client_request,
             get_mcp_server_response,
+            get_mcp_server_request,
+            get_mcp_client_response,
+            get_mcp_client_notification,
+            get_mcp_server_notification,
             get_mcp_logs,
             colorize_json
         ])

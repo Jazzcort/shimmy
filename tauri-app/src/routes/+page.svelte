@@ -175,6 +175,7 @@
 					const legitSvelteId =
 						createLegitSvelteId(
 							event.payload.requestId,
+							"client",
 						);
 
 					if (
@@ -229,6 +230,7 @@
 					const legitSvelteId =
 						createLegitSvelteId(
 							event.payload.requestId,
+							"server",
 						);
 
 					if (
@@ -302,13 +304,17 @@
 							stampedResponse,
 						);
 
-						const entry = entries.find(
-							(item) =>
-								(
-									item.request as JSONRPCRequest
-								).id ===
+						const legitSvelteId =
+							createLegitSvelteId(
 								event.payload
 									.responseId,
+								"client",
+							);
+
+						const entry = entries.find(
+							(item) =>
+								item.id ===
+								legitSvelteId,
 						);
 
 						if (entry) {
@@ -338,6 +344,7 @@
 			unlistenClientResponse = await listen<IncomingResponse>(
 				"mcp-client-response",
 				async (event) => {
+					console.log("client response: ", event);
 					if (
 						event.payload.serverId ===
 						selectedConnectionId
@@ -360,13 +367,17 @@
 							stampedResponse,
 						);
 
-						const entry = entries.find(
-							(item) =>
-								(
-									item.request as JSONRPCRequest
-								).id ===
+						const legitSvelteId =
+							createLegitSvelteId(
 								event.payload
 									.responseId,
+								"server",
+							);
+
+						const entry = entries.find(
+							(item) =>
+								item.id ===
+								legitSvelteId,
 						);
 
 						if (entry) {
@@ -405,6 +416,7 @@
 							createLegitSvelteId(
 								event.payload
 									.notificationId,
+								"client",
 							);
 
 						if (
@@ -470,6 +482,7 @@
 							createLegitSvelteId(
 								event.payload
 									.notificationId,
+								"server",
 							);
 
 						if (

@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { RequestType } from "./types/inspector";
 
 const MONTHS = [
   "Jan",
@@ -26,12 +27,8 @@ export type {
   WithoutChildrenOrChild,
 } from "bits-ui";
 
-export function createLegitSvelteId(id: number | string) {
-  if (typeof id === "number") {
-    return id + 1;
-  }
-
-  return id;
+export function createLegitSvelteId(id: number | string, source: RequestType) {
+  return `${source}-${id}`;
 }
 
 export function formatTimestampString(input: string): string {

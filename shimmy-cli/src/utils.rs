@@ -8,6 +8,7 @@ use rmcp::{
     service::ServiceError,
 };
 use serde::Serialize;
+use tokio::time::{Duration, sleep};
 
 use crate::error::ShimmyError;
 
@@ -104,4 +105,8 @@ pub fn convert_text_to_error_data(
         message: text.into().into(),
         data: None,
     }
+}
+
+pub async fn sleep_for_seconds(seconds: u64) {
+    tokio::time::sleep(Duration::from_secs(seconds)).await;
 }

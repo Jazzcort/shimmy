@@ -2,7 +2,7 @@ export type LogStatus = "success" | "error" | "notification" | "pending";
 export type RequestType = "server" | "client";
 
 export interface InspectorEntry {
-  id: string | number;
+  id: string;
   timestamp: string;
   method: string;
   status: LogStatus;
