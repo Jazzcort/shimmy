@@ -131,6 +131,16 @@ impl ShimmyClient {
 
         result
     }
+
+    async fn disconnect(&self) {
+        if let Ok(id) = self.get_id() {
+            let _ = self
+                .http_client
+                .delete(format!("{}/disconnect/{}", SHIMMY_SERVER, id))
+                .send()
+                .await;
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -206,6 +216,19 @@ impl Middleman {
             .map_err(|err| convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err))?;
 
         Ok(())
+    }
+}
+
+impl Drop for Middleman {
+    fn drop(&mut self) {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                tokio::select! {
+                    _ = self.shimmy_client.disconnect() =>  {}
+                    _ = sleep_for_seconds(2) => {}
+                }
+            })
+        })
     }
 }
 
