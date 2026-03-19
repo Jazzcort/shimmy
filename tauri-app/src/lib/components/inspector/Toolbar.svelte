@@ -22,23 +22,32 @@
 	} = $props();
 
 	let selectedConnection = $derived(
-		connections.find((c) => c.id === selectedConnectionId)
+		connections.find((c) => c.id === selectedConnectionId),
 	);
 </script>
 
 <div class="flex items-center gap-3 border-b border-border bg-card px-4 py-2">
-	<Badge variant="outline" class="gap-1.5 border-green-500/30 bg-green-500/10 text-green-400">
+	<Badge
+		variant="outline"
+		class="gap-1.5 border-green-500/30 bg-green-500/10 text-green-400"
+	>
 		<CircleIcon class="size-2 fill-green-400" />
 		Connected
 	</Badge>
 
 	<Select.Root type="single" bind:value={selectedConnectionId}>
 		<Select.Trigger class="w-[200px] overflow-hidden">
-			<span class="truncate">{selectedConnection?.name ?? "Select connection"}</span>
+			<span class="truncate"
+				>{selectedConnection?.name ??
+					"Select connection"}</span
+			>
 		</Select.Trigger>
 		<Select.Content>
 			{#each connections as conn (conn.id)}
-				<Select.Item value={conn.id} label={conn.name} />
+				<Select.Item
+					value={conn.id}
+					label={conn.name}
+				/>
 			{/each}
 		</Select.Content>
 	</Select.Root>
@@ -50,7 +59,9 @@
 	{/if}
 
 	<div class="relative flex-1">
-		<FilterIcon class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+		<FilterIcon
+			class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+		/>
 		<Input
 			bind:value={filter}
 			placeholder="Filter methods..."

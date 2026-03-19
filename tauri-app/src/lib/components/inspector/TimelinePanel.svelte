@@ -17,7 +17,9 @@
 </script>
 
 <div class="flex h-full w-full flex-col">
-	<div class="border-b border-border px-3 py-2 h-11 flex items-center justify-between">
+	<div
+		class="border-b border-border px-3 py-2 h-11 flex items-center justify-between"
+	>
 		<h2
 			class="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
 		>

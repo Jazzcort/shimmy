@@ -63,7 +63,9 @@
 				async (event) => {
 					console.log("initializing!!", event);
 					pendingConnections.push(event.payload);
-					toast.info("Connecting to a shimmy client...");
+					toast.info(
+						"Connecting to a shimmy client...",
+					);
 				},
 			);
 		}
@@ -180,25 +182,13 @@
 			unlistenInitializeFail = await listen<{
 				serverId: string;
 				requestId: number | string;
-			}>(
-				"mcp-initialize-fail",
-				async (event) => {
-					console.log(
-						"initialize failed!!",
-						event,
-					);
-					pendingConnections =
-						pendingConnections.filter(
-							(id) =>
-								id !==
-								event.payload
-									.serverId,
-						);
-					toast.error(
-						"A connection has failed",
-					);
-				},
-			);
+			}>("mcp-initialize-fail", async (event) => {
+				console.log("initialize failed!!", event);
+				pendingConnections = pendingConnections.filter(
+					(id) => id !== event.payload.serverId,
+				);
+				toast.error("A connection has failed");
+			});
 		}
 
 		async function startListenClientRequest() {
@@ -213,12 +203,7 @@
 
 					if (
 						event.payload.serverId ===
-							selectedConnectionId &&
-						entries.every(
-							(entry) =>
-								entry.id !==
-								legitSvelteId,
-						)
+						selectedConnectionId
 					) {
 						const stampedRequest =
 							(await invoke(
@@ -250,7 +235,15 @@
 							stderr: null,
 						};
 
-						entries.push(entry);
+						if (
+							entries.every(
+								(entry) =>
+									entry.id !==
+									legitSvelteId,
+							)
+						) {
+							entries.push(entry);
+						}
 					}
 				},
 			);
@@ -268,12 +261,7 @@
 
 					if (
 						event.payload.serverId ===
-							selectedConnectionId &&
-						entries.every(
-							(entry) =>
-								entry.id !==
-								legitSvelteId,
-						)
+						selectedConnectionId
 					) {
 						const stampedRequest =
 							(await invoke(
@@ -305,7 +293,15 @@
 							stderr: null,
 						};
 
-						entries.push(entry);
+						if (
+							entries.every(
+								(entry) =>
+									entry.id !==
+									legitSvelteId,
+							)
+						) {
+							entries.push(entry);
+						}
 					}
 				},
 			);
@@ -455,12 +451,7 @@
 						if (
 							event.payload
 								.serverId ===
-								selectedConnectionId &&
-							entries.every(
-								(entry) =>
-									entry.id !==
-									legitSvelteId,
-							)
+							selectedConnectionId
 						) {
 							const stampedNotification =
 								(await invoke(
@@ -496,7 +487,19 @@
 									stderr: null,
 								};
 
-							entries.push(entry);
+							if (
+								entries.every(
+									(
+										entry,
+									) =>
+										entry.id !==
+										legitSvelteId,
+								)
+							) {
+								entries.push(
+									entry,
+								);
+							}
 						}
 					},
 				);
@@ -521,12 +524,7 @@
 						if (
 							event.payload
 								.serverId ===
-								selectedConnectionId &&
-							entries.every(
-								(entry) =>
-									entry.id !==
-									legitSvelteId,
-							)
+							selectedConnectionId
 						) {
 							const stampedNotification =
 								(await invoke(
@@ -562,7 +560,19 @@
 									stderr: null,
 								};
 
-							entries.push(entry);
+							if (
+								entries.every(
+									(
+										entry,
+									) =>
+										entry.id !==
+										legitSvelteId,
+								)
+							) {
+								entries.push(
+									entry,
+								);
+							}
 						}
 					},
 				);
@@ -710,11 +720,15 @@
 </script>
 
 <div class="flex h-screen flex-col bg-background text-foreground">
-	{#if connections.length === 0}
+	{#if connections.length === 0 || selectedConnectionId === null}
 		<div class="flex flex-1 items-center justify-center">
-			<div class="flex flex-col items-center gap-6 text-center">
+			<div
+				class="flex flex-col items-center gap-6 text-center"
+			>
 				<div class="flex items-center gap-3">
-					<div class="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+					<div
+						class="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10"
+					>
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
 							viewBox="0 0 24 24"
@@ -725,40 +739,85 @@
 							stroke-linejoin="round"
 							class="h-7 w-7 text-primary"
 						>
-							<path d="M12 2L2 7l10 5 10-5-10-5z" />
-							<path d="M2 17l10 5 10-5" />
-							<path d="M2 12l10 5 10-5" />
+							<path
+								d="M12 2L2 7l10 5 10-5-10-5z"
+							/>
+							<path
+								d="M2 17l10 5 10-5"
+							/>
+							<path
+								d="M2 12l10 5 10-5"
+							/>
 						</svg>
 					</div>
 				</div>
 				<div class="flex flex-col gap-2">
-					<h1 class="text-2xl font-bold tracking-tight">Shimmy</h1>
-					<p class="max-w-sm text-sm text-muted-foreground">
-						MCP protocol inspector. Connect an MCP client through the shimmy proxy to start inspecting requests, responses, and notifications.
+					<h1
+						class="text-2xl font-bold tracking-tight"
+					>
+						Shimmy
+					</h1>
+					<p
+						class="max-w-sm text-sm text-muted-foreground"
+					>
+						MCP protocol inspector. Connect
+						an MCP client through the shimmy
+						proxy to start inspecting
+						requests, responses, and
+						notifications.
 					</p>
 				</div>
 
-				<div class="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 text-left">
-					<p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+				<div
+					class="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 text-left"
+				>
+					<p
+						class="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+					>
 						Waiting for connections
 					</p>
 					<div class="flex items-center gap-3">
-						<div class="relative flex h-2 w-2">
-							<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/75"></span>
-							<span class="relative inline-flex h-2 w-2 rounded-full bg-primary"></span>
+						<div
+							class="relative flex h-2 w-2"
+						>
+							<span
+								class="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/75"
+							></span>
+							<span
+								class="relative inline-flex h-2 w-2 rounded-full bg-primary"
+							></span>
 						</div>
-						<span class="text-sm text-muted-foreground">
-							Listening on <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">127.0.0.1:13579</code>
+						<span
+							class="text-sm text-muted-foreground"
+						>
+							Listening on <code
+								class="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground"
+								>127.0.0.1:13579</code
+							>
 						</span>
 					</div>
 					{#if pendingConnections.length > 0}
-						<div class="flex items-center gap-3">
-							<div class="relative flex h-2 w-2">
-								<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500/75"></span>
-								<span class="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
+						<div
+							class="flex items-center gap-3"
+						>
+							<div
+								class="relative flex h-2 w-2"
+							>
+								<span
+									class="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500/75"
+								></span>
+								<span
+									class="relative inline-flex h-2 w-2 rounded-full bg-amber-500"
+								></span>
 							</div>
-							<span class="text-sm text-muted-foreground">
-								{pendingConnections.length} connection{pendingConnections.length > 1 ? 's' : ''} initializing...
+							<span
+								class="text-sm text-muted-foreground"
+							>
+								{pendingConnections.length}
+								connection{pendingConnections.length >
+								1
+									? "s"
+									: ""} initializing...
 							</span>
 						</div>
 					{/if}
@@ -792,7 +851,8 @@
 							invoke("get_mcp_logs", {
 								serverId: selectedConnectionId,
 							}).then((data) => {
-								entries = data as InspectorEntry[];
+								entries =
+									data as InspectorEntry[];
 							});
 						}
 					}}
