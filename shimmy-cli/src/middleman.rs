@@ -9,7 +9,12 @@ use crate::utils::{
 };
 use crate::{error::ShimmyError, utils::create_mcp_request};
 use reqwest::{Client, Response};
-use rmcp::model::{JsonRpcNotification, JsonRpcResponse};
+use rmcp::Peer;
+use rmcp::model::{
+    ClientRequest, ClientResult, ConstString, CreateElicitationRequest,
+    ElicitationCreateRequestMethod, JsonRpcNotification, JsonRpcResponse, PingRequest,
+    PingRequestMethod, ServerRequest, ServerResult,
+};
 use rmcp::{
     ClientHandler, RoleClient, RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::ToolRouter,
@@ -73,7 +78,8 @@ pub struct Middleman {
     tool_router: ToolRouter<Self>,
     shimmy_client: Arc<ShimmyClient>,
     mcp_client: McpClient,
-    _service: OnceCell<RunningService<RoleClient, McpClientService>>,
+    _server_service: OnceCell<RunningService<RoleClient, McpClientService>>,
+    _client_service: Arc<OnceCell<Peer<RoleServer>>>,
 }
 
 #[derive(Debug)]
@@ -135,7 +141,11 @@ struct InitializeFinishRequest {
 
 #[tool_router]
 impl Middleman {
-    fn new(mcp_client: McpClient, http_client: Client) -> Self {
+    fn new(
+        mcp_client: McpClient,
+        http_client: Client,
+        client_service: Arc<OnceCell<Peer<RoleServer>>>,
+    ) -> Self {
         return Self {
             tool_router: Self::tool_router(),
             // To share with client service
@@ -144,12 +154,13 @@ impl Middleman {
                 _id: OnceCell::new(),
             }),
             mcp_client,
-            _service: OnceCell::new(),
+            _server_service: OnceCell::new(),
+            _client_service: client_service,
         };
     }
 
     fn get_service(&self) -> Result<&RunningService<RoleClient, McpClientService>, ErrorData> {
-        self._service.get().ok_or(convert_text_to_error_data(
+        self._server_service.get().ok_or(convert_text_to_error_data(
             ErrorCode::INTERNAL_ERROR,
             "Failed trying to use service before it's initialized",
         ))
@@ -223,6 +234,7 @@ impl ServerHandler for Middleman {
             let mcp_client = McpClientService {
                 client_info: request.clone(),
                 shimmy_client: self.shimmy_client.clone(),
+                _service: self._client_service.clone(),
             };
 
             let mut initialize_result: Option<InitializeResult> = None;
@@ -247,7 +259,7 @@ impl ServerHandler for Middleman {
 
                     initialize_result = service.peer_info().cloned();
 
-                    self._service.set(service).map_err(|err| {
+                    self._server_service.set(service).map_err(|err| {
                         convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
                     })?;
                 }
@@ -263,7 +275,7 @@ impl ServerHandler for Middleman {
 
                     initialize_result = service.peer_info().cloned();
 
-                    self._service.set(service).map_err(|err| {
+                    self._server_service.set(service).map_err(|err| {
                         convert_error_to_error_data(ErrorCode::INTERNAL_ERROR, err)
                     })?;
                 }
@@ -460,32 +472,48 @@ impl ServerHandler for Middleman {
     }
 
     async fn ping(&self, context: RequestContext<RoleServer>) -> Result<(), ErrorData> {
-        let params = serde_json::Map::new();
-        let ping_request = create_mcp_request("ping", params);
-        let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request);
+        let final_result = async {
+            let params = serde_json::Map::new();
+            let ping_request = create_mcp_request("ping", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request.clone());
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
+
+            let internal_ping_request = PingRequest {
+                method: PingRequestMethod,
+                extensions: Extensions::new(),
+            };
+            if let ServerResult::EmptyResult(_) = self
+                .get_service()?
+                .send_request(ClientRequest::PingRequest(internal_ping_request))
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?
+            {
+                let jsonrpc_response =
+                    create_jsonrpc_response(context.id.clone(), serde_json::Map::new());
+                self.shimmy_client
+                    .send_to_shimmy_app("server/response", jsonrpc_response);
+                Ok(())
+            } else {
+                Err(convert_text_to_error_data(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Expect ping response, but got something else",
+                ))
+            }
+        }
+        .await;
 
         self.shimmy_client
-            .send_to_shimmy_app("client/request", jsonrpc_request);
-
-        // check if the service exists
-        let _ = self.get_service()?;
-
-        let params = serde_json::Map::new();
-        let jsonrpc_response = create_jsonrpc_response(context.id, params);
-
-        // To make sure the response arrives later than the request
-        sleep_for_seconds(1).await;
-
-        self.shimmy_client
-            .send_to_shimmy_app("server/response", jsonrpc_response);
-
-        Ok(())
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
     async fn on_initialized(&self, _context: NotificationContext<RoleServer>) -> () {
         let params = serde_json::Map::new();
         let initialized_notification = create_mcp_notification("notifications/initialized", params);
         let jsonrpc_notification = create_jsonrpc_notification(initialized_notification);
+
+        // No need to trigger notify_initialized since it's already handled by rmcp Client
 
         self.shimmy_client
             .send_to_shimmy_app("client/notification", jsonrpc_notification);
@@ -496,6 +524,16 @@ impl ServerHandler for Middleman {
 pub struct McpClientService {
     client_info: ClientInfo,
     shimmy_client: Arc<ShimmyClient>,
+    _service: Arc<OnceCell<Peer<RoleServer>>>,
+}
+
+impl McpClientService {
+    fn get_service(&self) -> Result<&Peer<RoleServer>, ErrorData> {
+        self._service.get().ok_or(convert_text_to_error_data(
+            ErrorCode::INTERNAL_ERROR,
+            "Failed trying to use service before it's initialized",
+        ))
+    }
 }
 
 impl ClientHandler for McpClientService {
@@ -504,33 +542,99 @@ impl ClientHandler for McpClientService {
     }
 
     async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) -> () {
-        let params = serde_json::Map::new();
-        let tool_list_changed_notification =
-            create_mcp_notification("notifications/tools/list_changed", params);
-        let jsonrpc_notification = create_jsonrpc_notification(tool_list_changed_notification);
+        let _: Result<(), ErrorData> = async {
+            let params = serde_json::Map::new();
+            let tool_list_changed_notification =
+                create_mcp_notification("notifications/tools/list_changed", params);
+            let jsonrpc_notification = create_jsonrpc_notification(tool_list_changed_notification);
 
-        self.shimmy_client
-            .send_to_shimmy_app("server/notification", jsonrpc_notification);
+            self.shimmy_client
+                .send_to_shimmy_app("server/notification", jsonrpc_notification);
+            let _ = self.get_service()?.notify_tool_list_changed().await;
+
+            Ok(())
+        }
+        .await;
     }
 
     async fn ping(&self, context: RequestContext<RoleClient>) -> Result<(), ErrorData> {
-        let params = serde_json::Map::new();
-        let ping_request = create_mcp_request("ping", params);
-        let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request);
+        let final_result = async {
+            let params = serde_json::Map::new();
+            let ping_request = create_mcp_request("ping", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/request", jsonrpc_request);
+
+            let internal_ping_request = PingRequest {
+                method: PingRequestMethod,
+                extensions: Extensions::new(),
+            };
+
+            if let ClientResult::EmptyResult(_) = self
+                .get_service()?
+                .send_request(ServerRequest::PingRequest(internal_ping_request))
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?
+            {
+                let jsonrpc_response =
+                    create_jsonrpc_response(context.id.clone(), serde_json::Map::new());
+                self.shimmy_client
+                    .send_to_shimmy_app("client/response", jsonrpc_response);
+
+                Ok(())
+            } else {
+                Err(convert_text_to_error_data(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Expect ping response, but got something else",
+                ))
+            }
+        }
+        .await;
 
         self.shimmy_client
-            .send_to_shimmy_app("server/request", jsonrpc_request);
+            .pipe_mcp_error_if_any(context.id, "client/response", final_result)
+    }
 
-        let params = serde_json::Map::new();
-        let jsonrpc_response = create_jsonrpc_response(context.id, params);
+    async fn create_elicitation(
+        &self,
+        request: rmcp::model::CreateElicitationRequestParams,
+        context: RequestContext<RoleClient>,
+    ) -> Result<rmcp::model::CreateElicitationResult, ErrorData> {
+        let final_result = async {
+            let create_elicitation_request: CreateElicitationRequest =
+                Request::new(request.clone());
+            let jsonrpc_request =
+                JsonRpcRequest::new(context.id.clone(), create_elicitation_request.clone());
 
-        // To make sure the response arrives later than the request
-        sleep_for_seconds(1).await;
+            self.shimmy_client
+                .send_to_shimmy_app("server/request", jsonrpc_request);
+
+            if let ClientResult::CreateElicitationResult(result) = self
+                .get_service()?
+                .send_request(ServerRequest::CreateElicitationRequest(
+                    create_elicitation_request,
+                ))
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?
+            {
+                let params = convert_to_json_object(result.clone())?;
+                let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+                self.shimmy_client
+                    .send_to_shimmy_app("client/response", jsonrpc_response);
+
+                Ok(result)
+            } else {
+                Err(convert_text_to_error_data(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Expect elicitation result, but got something else",
+                ))
+            }
+        }
+        .await;
 
         self.shimmy_client
-            .send_to_shimmy_app("client/response", jsonrpc_response);
-
-        Ok(())
+            .pipe_mcp_error_if_any(context.id, "client/response", final_result)
     }
 }
 
@@ -541,12 +645,16 @@ where
 {
     let mcp_client = McpClient::Stdio(McpStdioClient::new(cmd.clone(), args.clone()));
     let http_client = Client::builder().build()?;
-    let middleman = Middleman::new(mcp_client, http_client);
+    let client_service = Arc::new(OnceCell::new());
+
+    let middleman = Middleman::new(mcp_client, http_client, client_service.clone());
 
     let middleman_service = middleman
         .serve(stdio())
         .await
         .inspect_err(|e| println!("Error starting server: {}", e))?;
+
+    let _ = client_service.set(middleman_service.clone());
 
     middleman_service.waiting().await?;
 
@@ -556,12 +664,16 @@ where
 pub async fn spawn_middleman_with_http(url: String) -> Result<(), ShimmyError> {
     let mcp_client = McpClient::Http(McpHttpClient { url });
     let http_client = Client::builder().build()?;
-    let middleman = Middleman::new(mcp_client, http_client);
+    let client_service = Arc::new(OnceCell::new());
+
+    let middleman = Middleman::new(mcp_client, http_client, client_service.clone());
 
     let middleman_service = middleman
         .serve(stdio())
         .await
         .inspect_err(|e| println!("Error starting server: {}", e))?;
+
+    let _ = client_service.set(middleman_service.clone());
 
     middleman_service.waiting().await?;
 
