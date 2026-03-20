@@ -12,8 +12,8 @@ use reqwest::{Client, Response};
 use rmcp::Peer;
 use rmcp::model::{
     ClientRequest, ClientResult, ConstString, CreateElicitationRequest,
-    ElicitationCreateRequestMethod, JsonRpcNotification, JsonRpcResponse, PingRequest,
-    PingRequestMethod, ServerRequest, ServerResult,
+    ElicitationCreateRequestMethod, JsonRpcMessage, JsonRpcNotification, JsonRpcResponse,
+    PingRequest, PingRequestMethod, ServerRequest, ServerResult,
 };
 use rmcp::{
     ClientHandler, RoleClient, RoleServer, ServerHandler, ServiceExt,
@@ -145,7 +145,7 @@ impl ShimmyClient {
 
 #[derive(Serialize)]
 struct InitializeFinishRequest {
-    response: JsonRpcResponse,
+    response: JsonRpcMessage,
     transport: McpServerTransport,
 }
 
@@ -196,7 +196,7 @@ impl Middleman {
 
     async fn finish_initialize_with_shimmy_app(
         &self,
-        jsonrpc_response: JsonRpcResponse,
+        jsonrpc_response: JsonRpcMessage,
     ) -> Result<(), ErrorData> {
         let id = self.shimmy_client.get_id()?;
         let initialize_finish_request = InitializeFinishRequest {
@@ -244,7 +244,7 @@ impl ServerHandler for Middleman {
         request: InitializeRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, ErrorData> {
-        let final_result = async {
+        let final_result: Result<InitializeResult, ErrorData> = async {
             let params = convert_to_json_object(&request)?;
             let initialize_request = create_mcp_request("initialize", params);
             let jsonrpc_request = create_jsonrpc_request(context.id.clone(), initialize_request);
@@ -313,15 +313,21 @@ impl ServerHandler for Middleman {
 
             // Should not crach the mcp connection if we can not connect to shimmy app
             let _ = self
-                .finish_initialize_with_shimmy_app(jsonrpc_response)
+                .finish_initialize_with_shimmy_app(JsonRpcMessage::Response(jsonrpc_response))
                 .await;
 
             Ok(initialize_result)
         }
         .await;
 
-        self.shimmy_client
-            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+        if let Err(error_data) = &final_result {
+            let jsonrpc_error = create_jsonrpc_error(context.id, error_data.clone());
+            let _ = self
+                .finish_initialize_with_shimmy_app(JsonRpcMessage::Error(jsonrpc_error))
+                .await;
+        }
+
+        final_result
     }
 
     async fn list_tools(
