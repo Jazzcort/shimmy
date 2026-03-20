@@ -36,6 +36,18 @@
 	let entries = $state<InspectorEntry[]>([]);
 	let pendingConnections = $state<string[]>([]);
 
+	function getUniqueConnectionName(baseName: string): string {
+		const existingNames = new Set(connections.map((c) => c.name));
+		if (!existingNames.has(baseName)) {
+			return baseName;
+		}
+		let counter = 2;
+		while (existingNames.has(`${baseName} (${counter})`)) {
+			counter++;
+		}
+		return `${baseName} (${counter})`;
+	}
+
 	let selectedEntryId = $state<number | string | null>(null);
 	let filter = $state("");
 	let selectedConnectionId = $state<string | null>(null);
@@ -148,7 +160,7 @@
 								initialize_response.result as InitializeResult
 							).serverInfo.name;
 
-							const connectionName = `${clientName}-${serverName}`;
+							const connectionName = getUniqueConnectionName(`${clientName}-${serverName}`);
 							connections.push({
 								transport: event
 									.payload
