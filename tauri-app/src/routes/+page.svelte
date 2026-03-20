@@ -39,7 +39,6 @@
 	let selectedEntryId = $state<number | string | null>(null);
 	let filter = $state("");
 	let selectedConnectionId = $state<string | null>(null);
-	let paused = $state(false);
 
 	onMount(() => {
 		let unlistenInitializeStart: UnlistenFn | undefined = undefined;
@@ -56,6 +55,8 @@
 			undefined;
 		let unlistenServerNotification: UnlistenFn | undefined =
 			undefined;
+
+		let unlistenDisconnect: UnlistenFn | undefined = undefined;
 
 		async function startListenInitializeStart() {
 			unlistenInitializeStart = await listen<string>(
@@ -156,6 +157,7 @@
 									.payload
 									.serverId,
 								name: connectionName,
+								isConnected: true,
 							});
 
 							toast.success(
@@ -578,6 +580,22 @@
 				);
 		}
 
+		async function startListenDisconnect() {
+			unlistenDisconnect = await listen<string>(
+				"disconnect",
+				async (event) => {
+					const connection = connections.find(
+						(conn) =>
+							conn.id ===
+							event.payload,
+					);
+					if (connection) {
+						connection.isConnected = false;
+					}
+				},
+			);
+		}
+
 		// TODO: Can optimize to have events like
 		// UpdateEvent {
 		//   serverId: ...,
@@ -594,6 +612,7 @@
 		startListenClientResponse();
 		startListenClientNotification();
 		startListenServerNotification();
+		startListenDisconnect();
 
 		return () => {
 			if (unlistenInitializeStart) {
@@ -630,6 +649,10 @@
 
 			if (unlistenServerNotification) {
 				unlistenServerNotification();
+			}
+
+			if (unlistenDisconnect) {
+				unlistenDisconnect();
 			}
 		};
 	});
@@ -829,7 +852,19 @@
 			{connections}
 			bind:selectedConnectionId
 			bind:filter
-			bind:paused
+			ondelete={(connectionId) => {
+				connections = connections.filter(
+					(c) => c.id !== connectionId,
+				);
+				entries = [];
+				selectedEntryId = null;
+				if (connections.length > 0) {
+					selectedConnectionId =
+						connections[0].id;
+				} else {
+					selectedConnectionId = null;
+				}
+			}}
 		/>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div

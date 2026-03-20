@@ -8,17 +8,18 @@
 	import PauseIcon from "lucide-svelte/icons/pause";
 	import PlayIcon from "lucide-svelte/icons/play";
 	import FilterIcon from "lucide-svelte/icons/filter";
+	import Trash2Icon from "lucide-svelte/icons/trash-2";
 
 	let {
 		connections,
 		selectedConnectionId = $bindable(),
 		filter = $bindable(""),
-		paused = $bindable(false),
+		ondelete,
 	}: {
 		connections: McpConnection[];
 		selectedConnectionId: string;
 		filter: string;
-		paused: boolean;
+		ondelete?: (connectionId: string) => void;
 	} = $props();
 
 	let selectedConnection = $derived(
@@ -27,13 +28,32 @@
 </script>
 
 <div class="flex items-center gap-3 border-b border-border bg-card px-4 py-2">
-	<Badge
-		variant="outline"
-		class="gap-1.5 border-green-500/30 bg-green-500/10 text-green-400"
-	>
-		<CircleIcon class="size-2 fill-green-400" />
-		Connected
-	</Badge>
+	{#if selectedConnection?.isConnected === false}
+		<Badge
+			variant="outline"
+			class="gap-1.5 border-red-500/30 bg-red-500/10 text-red-400"
+		>
+			<CircleIcon class="size-2 fill-red-400" />
+			Disconnected
+		</Badge>
+		<Button
+			variant="ghost"
+			size="sm"
+			class="h-7 gap-1.5 px-2 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+			onclick={() => ondelete?.(selectedConnectionId)}
+		>
+			<Trash2Icon class="size-3.5" />
+			Delete
+		</Button>
+	{:else}
+		<Badge
+			variant="outline"
+			class="gap-1.5 border-green-500/30 bg-green-500/10 text-green-400"
+		>
+			<CircleIcon class="size-2 fill-green-400" />
+			Connected
+		</Badge>
+	{/if}
 
 	<Select.Root type="single" bind:value={selectedConnectionId}>
 		<Select.Trigger class="w-[200px] overflow-hidden">
@@ -68,19 +88,4 @@
 			class="h-8 pl-8 text-sm"
 		/>
 	</div>
-
-	<Button
-		variant="ghost"
-		size="sm"
-		class="h-8 gap-1.5 px-3"
-		onclick={() => (paused = !paused)}
-	>
-		{#if paused}
-			<PlayIcon class="size-3.5" />
-			Resume
-		{:else}
-			<PauseIcon class="size-3.5" />
-			Pause
-		{/if}
-	</Button>
 </div>

@@ -470,3 +470,47 @@ pub async fn get_mcp_logs(
 
     Ok(entries)
 }
+
+#[tauri::command]
+pub async fn delete_connection_data(
+    server_id: String,
+    state: State<'_, AppData>,
+) -> Result<(), ShimmyError> {
+    state
+        .mcp_client_request_store
+        .lock()
+        .await
+        .retain(|(id, _), _| id != &server_id);
+
+    state
+        .mcp_server_request_store
+        .lock()
+        .await
+        .retain(|(id, _), _| id != &server_id);
+
+    state
+        .mcp_client_response_store
+        .lock()
+        .await
+        .retain(|(id, _), _| id != &server_id);
+
+    state
+        .mcp_server_request_store
+        .lock()
+        .await
+        .retain(|(id, _), _| id != &server_id);
+
+    state
+        .mcp_client_notification_store
+        .lock()
+        .await
+        .retain(|(id, _), _| id != &server_id);
+
+    state
+        .mcp_server_notification_store
+        .lock()
+        .await
+        .retain(|(id, _), _| id != &server_id);
+
+    Ok(())
+}

@@ -16,4 +16,5 @@ export interface McpConnection {
   id: string;
   name: string;
   transport: string;
+  isConnected: boolean;
 }

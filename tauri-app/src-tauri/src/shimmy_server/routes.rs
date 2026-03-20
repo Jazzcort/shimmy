@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use jiff::{tz::TimeZone, Timestamp};
@@ -321,6 +321,16 @@ async fn server_mcp_notification(
     (StatusCode::OK, ())
 }
 
+async fn disconnect(Path(id): Path<String>, State(state): State<ProxyState>) -> (StatusCode, ()) {
+    println!("disconnect: {:?}", id);
+
+    if let Err(e) = state.tauri_app.emit("disconnect", id) {
+        eprintln!("Failed to emit to frontend: {}", e);
+    }
+
+    (StatusCode::OK, ())
+}
+
 pub async fn spawn_server(proxy_state: ProxyState) {
     let client_route = Router::new()
         .route("/request/{id}", post(client_mcp_request))
@@ -338,6 +348,7 @@ pub async fn spawn_server(proxy_state: ProxyState) {
         .nest("/initialize", initialize_route)
         .nest("/client", client_route)
         .nest("/server", server_route)
+        .route("/disconnect/{id}", delete(disconnect))
         .with_state(proxy_state);
 
     let listenner = tokio::net::TcpListener::bind("127.0.0.1:13579")
