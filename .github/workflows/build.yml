@@ -2,10 +2,8 @@ name: Build
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+    tags:
+      - "v*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -113,3 +111,45 @@ jobs:
         with:
           name: shimmy-cli-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-tauri, build-cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          # Package CLI binaries with target name
+          for dir in artifacts/shimmy-cli-*/; do
+            target=$(basename "$dir" | sed 's/shimmy-cli-//')
+            find "$dir" -type f \( -name "shimmy-cli" -o -name "shimmy-cli.exe" \) | while read f; do
+              ext=""
+              [[ "$f" == *.exe ]] && ext=".exe"
+              cp "$f" "release-assets/shimmy-cli-${target}${ext}"
+            done
+          done
+          # Package Tauri app bundles with target name
+          for dir in artifacts/tauri-app-*/; do
+            target=$(basename "$dir" | sed 's/tauri-app-//')
+            find "$dir" -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.msi" -o -name "*.nsis.exe" -o -name "*.exe" \) | while read f; do
+              filename=$(basename "$f")
+              cp "$f" "release-assets/${filename}"
+            done
+          done
+          echo "Release assets:"
+          ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*
