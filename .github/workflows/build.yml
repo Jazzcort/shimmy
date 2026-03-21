@@ -64,22 +64,14 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        with:
-          projectPath: tauri-app
-          args: --target ${{ matrix.target }}
+        working-directory: tauri-app
+        run: npx tauri build --target ${{ matrix.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tauri-app-${{ matrix.target }}
-          path: |
-            tauri-app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
-            tauri-app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
-            tauri-app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            tauri-app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
-            tauri-app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-            tauri-app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+          path: target/${{ matrix.target }}/release/bundle/
 
   build-cli:
     strategy:
