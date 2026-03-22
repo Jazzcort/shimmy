@@ -1,7 +1,7 @@
 # Shimmy - MCP Inspector
 
 <p align="center">
-  <img src="media/shimmy-icon-round.png" alt="Shimmy Logo" width="128" height="128">
+  <img src="media/shimmy-icon-round.png" alt="Shimmy Logo" width="256" height="256">
 </p>
 
 Shimmy is a debugging and inspection tool for [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. It intercepts traffic between MCP clients and servers, letting you see every request, response, and notification in real time.
@@ -150,6 +150,58 @@ Change it to:
 ```
 
 Now all traffic between the client and server will be visible in the Shimmy App.
+
+## Supported MCP Methods
+
+Shimmy proxies and inspects MCP protocol messages. Below is the current coverage of MCP methods.
+
+### Client-to-Server Requests
+
+| Method | Status |
+|---|---|
+| `initialize` | Supported |
+| `ping` | Supported |
+| `tools/list` | Supported |
+| `tools/call` | Supported |
+| `resources/list` | Supported |
+| `resources/read` | Supported |
+| `prompts/list` | Supported |
+| `prompts/get` | Not yet supported |
+| `resources/templates/list` | Not yet supported |
+| `resources/subscribe` | Not yet supported |
+| `resources/unsubscribe` | Not yet supported |
+| `completion/complete` | Not yet supported |
+| `logging/setLevel` | Not yet supported |
+
+### Client-to-Server Notifications
+
+| Method | Status |
+|---|---|
+| `notifications/initialized` | Supported |
+| `notifications/cancelled` | Not yet supported |
+| `notifications/progress` | Not yet supported |
+| `notifications/roots/list_changed` | Not yet supported |
+
+### Server-to-Client Requests
+
+| Method | Status |
+|---|---|
+| `ping` | Supported |
+| `elicitation/create` | Supported |
+| `sampling/createMessage` | Not yet supported |
+| `roots/list` | Not yet supported |
+
+### Server-to-Client Notifications
+
+| Method | Status |
+|---|---|
+| `notifications/tools/list_changed` | Supported |
+| `notifications/cancelled` | Not yet supported |
+| `notifications/progress` | Not yet supported |
+| `notifications/message` | Not yet supported |
+| `notifications/resources/updated` | Not yet supported |
+| `notifications/resources/list_changed` | Not yet supported |
+| `notifications/prompts/list_changed` | Not yet supported |
 
 ## Building from Source
 
