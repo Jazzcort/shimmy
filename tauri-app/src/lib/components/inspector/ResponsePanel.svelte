@@ -49,19 +49,31 @@
 		<div class="flex-1 overflow-y-auto p-4">
 			{#if entry.response}
 				<JsonViewer data={entry.response} />
+			{:else if entry.status === "pending"}
+				<div
+					class="flex items-center justify-center py-8 text-sm text-muted-foreground"
+				>
+					<p class="truncate">
+						Waiting for response...
+					</p>
+				</div>
 			{:else}
 				<div
 					class="flex items-center justify-center py-8 text-sm text-muted-foreground"
 				>
-					No response (notification).
+					<p class="truncate">
+						No response (notification).
+					</p>
 				</div>
 			{/if}
 		</div>
 	{:else}
 		<div
-			class="flex flex-1 items-center justify-center text-sm text-muted-foreground"
+			class="flex flex-1 items-center justify-center text-sm text-muted-foreground px-4"
 		>
-			Select an entry to view the response.
+			<p class="truncate">
+				Select an entry to view the response.
+			</p>
 		</div>
 	{/if}
 </div>

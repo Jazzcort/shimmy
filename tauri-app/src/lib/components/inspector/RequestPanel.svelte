@@ -32,9 +32,11 @@
 		</div>
 	{:else}
 		<div
-			class="flex flex-1 items-center justify-center text-sm text-muted-foreground"
+			class="flex flex-1 items-center justify-center text-sm text-muted-foreground px-4"
 		>
-			Select an entry to view the request.
+			<p class="truncate">
+				Select an entry to view the request.
+			</p>
 		</div>
 	{/if}
 </div>
