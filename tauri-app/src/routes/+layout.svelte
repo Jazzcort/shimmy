@@ -3,5 +3,5 @@
   import { Toaster } from 'svelte-sonner';
 </script>
 
-<Toaster richColors />
+<Toaster richColors expand />
 <slot />

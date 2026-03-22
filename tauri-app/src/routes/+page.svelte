@@ -78,6 +78,9 @@
 					pendingConnections.push(event.payload);
 					toast.info(
 						"Connecting to a shimmy client...",
+						{
+							style: "width: fit-content;",
+						},
 					);
 				},
 			);
@@ -160,7 +163,10 @@
 								initialize_response.result as InitializeResult
 							).serverInfo.name;
 
-							const connectionName = getUniqueConnectionName(`${clientName}-${serverName}`);
+							const connectionName =
+								getUniqueConnectionName(
+									`${clientName}-${serverName}`,
+								);
 							connections.push({
 								transport: event
 									.payload
@@ -201,7 +207,9 @@
 				pendingConnections = pendingConnections.filter(
 					(id) => id !== event.payload.serverId,
 				);
-				toast.error("A connection has failed");
+				toast.error("A connection has failed", {
+					style: "width: fit-content;",
+				});
 			});
 		}
 
@@ -892,7 +900,7 @@
 				onpointerdown={(e) =>
 					onPointerDown("timeline", e)}
 			></div>
-			<div style="flex: {requestFlex}; min-width: 0;">
+			<div style="flex: {requestFlex}; min-width: 150px;">
 				<RequestPanel entry={selectedEntry} />
 			</div>
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -901,7 +909,7 @@
 				onpointerdown={(e) =>
 					onPointerDown("request", e)}
 			></div>
-			<div style="flex: {responseFlex}; min-width: 0;">
+			<div style="flex: {responseFlex}; min-width: 150px;">
 				<ResponsePanel entry={selectedEntry} />
 			</div>
 		</div>
