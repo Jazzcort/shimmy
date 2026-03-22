@@ -4,6 +4,10 @@
   <img src="media/shimmy-icon-round.png" alt="Shimmy Logo" width="256" height="256">
 </p>
 
+<p align="center">
+  <img src="media/shimmy-demo.gif" alt="Shimmy Demo">
+</p>
+
 Shimmy is a debugging and inspection tool for [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. It intercepts traffic between MCP clients and servers, letting you see every request, response, and notification in real time.
 
 ## How It Works
