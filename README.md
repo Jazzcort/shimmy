@@ -35,6 +35,8 @@ Download the latest release for your platform from the [GitHub Releases](https:/
 
 Alternatively, you can [build from source](#building-from-source).
 
+**Please note that the app is built without signing in the release, need some tricks to bypass the security check on eash OS. If you don't feel comfortable doing that just check the source code and build from it.**
+
 ## Getting Started
 
 ### 1. Launch the Shimmy App
@@ -154,6 +156,8 @@ Change it to:
 ```
 
 Now all traffic between the client and server will be visible in the Shimmy App.
+
+**If you encounter any path resolution issue, just use the absolute path.**
 
 ## Supported MCP Methods
 
