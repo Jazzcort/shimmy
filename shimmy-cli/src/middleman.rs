@@ -669,10 +669,10 @@ impl ClientHandler for McpClientService {
 
 pub async fn spawn_middleman_with_stdio<S, I>(cmd: S, args: I) -> Result<(), ShimmyError>
 where
-    S: Into<String> + AsRef<OsStr> + Clone,
-    I: IntoIterator<Item = S> + Clone,
+    S: Into<String> + AsRef<OsStr>,
+    I: IntoIterator<Item = S>,
 {
-    let mcp_client = McpClient::Stdio(McpStdioClient::new(cmd.clone(), args.clone()));
+    let mcp_client = McpClient::Stdio(McpStdioClient::new(cmd, args));
     let http_client = Client::builder().build()?;
     let client_service = Arc::new(OnceCell::new());
 
