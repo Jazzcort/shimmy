@@ -19,12 +19,12 @@ use rmcp::{
     ClientHandler, RoleClient, RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::ToolRouter,
     model::{
-        Annotated, CallToolRequestParams, CallToolResult, ClientInfo, ErrorCode, ErrorData,
-        Extensions, Implementation, InitializeRequestParams, InitializeResult, JsonRpcRequest,
-        JsonRpcVersion2_0, ListPromptsResult, ListResourcesResult, ListToolsResult, Notification,
-        NotificationNoParam, PaginatedRequestParams, Prompt, ProtocolVersion, RawResource,
-        ReadResourceRequestParams, ReadResourceResult, Request, RequestId, ServerCapabilities,
-        ServerInfo, Tool,
+        Annotated, CallToolRequestParams, CallToolResult, CancelledNotificationParam, ClientInfo,
+        ErrorCode, ErrorData, Extensions, GetPromptRequestParams, GetPromptResult, Implementation,
+        InitializeRequestParams, InitializeResult, JsonRpcRequest, JsonRpcVersion2_0,
+        ListPromptsResult, ListResourcesResult, ListToolsResult, Notification, NotificationNoParam,
+        PaginatedRequestParams, Prompt, ProtocolVersion, RawResource, ReadResourceRequestParams,
+        ReadResourceResult, Request, RequestId, ServerCapabilities, ServerInfo, Tool,
     },
     service::{NotificationContext, RequestContext, RunningService, ServiceError},
     tool_handler, tool_router,
@@ -238,6 +238,8 @@ impl ServerHandler for Middleman {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::default()
     }
+
+    // Requests
 
     async fn initialize(
         &self,
@@ -537,15 +539,71 @@ impl ServerHandler for Middleman {
             .pipe_mcp_error_if_any(context.id, "server/response", final_result)
     }
 
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, ErrorData> {
+        let final_result = async {
+            let params = convert_to_json_object(request.clone())?;
+            let get_prompt_request = create_mcp_request("prompts/get", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), get_prompt_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
+
+            let get_prompt_response = self
+                .get_service()?
+                .get_prompt(request)
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+            let params = convert_to_json_object(&get_prompt_response)?;
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
+
+            Ok(get_prompt_response)
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+    }
+
+    // Notifications
+
     async fn on_initialized(&self, _context: NotificationContext<RoleServer>) -> () {
+        // No need to trigger notify_initialized since it's already handled by rmcp Client
+
         let params = serde_json::Map::new();
         let initialized_notification = create_mcp_notification("notifications/initialized", params);
         let jsonrpc_notification = create_jsonrpc_notification(initialized_notification);
-
-        // No need to trigger notify_initialized since it's already handled by rmcp Client
-
         self.shimmy_client
             .send_to_shimmy_app("client/notification", jsonrpc_notification);
+    }
+
+    async fn on_cancelled(
+        &self,
+        notification: CancelledNotificationParam,
+        _context: NotificationContext<RoleServer>,
+    ) -> () {
+        let _: Result<(), ErrorData> = async {
+            let _ = self
+                .get_service()?
+                .notify_cancelled(notification.clone())
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+
+            // Only log the notification when it's delivered successfully
+            let params = convert_to_json_object(notification)?;
+            let cancel_notification = create_mcp_notification("notifications/cancelled", params);
+            let jsonrpc_notification = create_jsonrpc_notification(cancel_notification);
+            self.shimmy_client
+                .send_to_shimmy_app("client/notification", jsonrpc_notification);
+            Ok(())
+        }
+        .await;
     }
 }
 
@@ -570,21 +628,7 @@ impl ClientHandler for McpClientService {
         self.client_info.clone()
     }
 
-    async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) -> () {
-        let _: Result<(), ErrorData> = async {
-            let params = serde_json::Map::new();
-            let tool_list_changed_notification =
-                create_mcp_notification("notifications/tools/list_changed", params);
-            let jsonrpc_notification = create_jsonrpc_notification(tool_list_changed_notification);
-
-            self.shimmy_client
-                .send_to_shimmy_app("server/notification", jsonrpc_notification);
-            let _ = self.get_service()?.notify_tool_list_changed().await;
-
-            Ok(())
-        }
-        .await;
-    }
+    // Requests
 
     async fn ping(&self, context: RequestContext<RoleClient>) -> Result<(), ErrorData> {
         let final_result = async {
@@ -664,6 +708,52 @@ impl ClientHandler for McpClientService {
 
         self.shimmy_client
             .pipe_mcp_error_if_any(context.id, "client/response", final_result)
+    }
+
+    // Notifications
+
+    async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) -> () {
+        let _: Result<(), ErrorData> = async {
+            let _ = self
+                .get_service()?
+                .notify_tool_list_changed()
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+
+            // Only log the notification when it's delivered successfully
+            let params = serde_json::Map::new();
+            let tool_list_changed_notification =
+                create_mcp_notification("notifications/tools/list_changed", params);
+            let jsonrpc_notification = create_jsonrpc_notification(tool_list_changed_notification);
+            self.shimmy_client
+                .send_to_shimmy_app("server/notification", jsonrpc_notification);
+
+            Ok(())
+        }
+        .await;
+    }
+
+    async fn on_cancelled(
+        &self,
+        notification: CancelledNotificationParam,
+        context: NotificationContext<RoleClient>,
+    ) -> () {
+        let _: Result<(), ErrorData> = async {
+            let _ = self
+                .get_service()?
+                .notify_cancelled(notification.clone())
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+
+            // Only log the notification when it's delivered successfully
+            let params = convert_to_json_object(notification)?;
+            let cancel_notification = create_mcp_notification("notifications/cancelled", params);
+            let jsonrpc_notification = create_jsonrpc_notification(cancel_notification);
+            self.shimmy_client
+                .send_to_shimmy_app("server/notification", jsonrpc_notification);
+            Ok(())
+        }
+        .await;
     }
 }
 
