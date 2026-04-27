@@ -174,7 +174,7 @@ Shimmy proxies and inspects MCP protocol messages. Below is the current coverage
 | `resources/list` | Supported |
 | `resources/read` | Supported |
 | `prompts/list` | Supported |
-| `prompts/get` | Not yet supported |
+| `prompts/get` | Supported |
 | `resources/templates/list` | Not yet supported |
 | `resources/subscribe` | Not yet supported |
 | `resources/unsubscribe` | Not yet supported |
@@ -186,7 +186,7 @@ Shimmy proxies and inspects MCP protocol messages. Below is the current coverage
 | Method | Status |
 |---|---|
 | `notifications/initialized` | Supported |
-| `notifications/cancelled` | Not yet supported |
+| `notifications/cancelled` | Supported |
 | `notifications/progress` | Not yet supported |
 | `notifications/roots/list_changed` | Not yet supported |
 
@@ -204,7 +204,7 @@ Shimmy proxies and inspects MCP protocol messages. Below is the current coverage
 | Method | Status |
 |---|---|
 | `notifications/tools/list_changed` | Supported |
-| `notifications/cancelled` | Not yet supported |
+| `notifications/cancelled` | Supported |
 | `notifications/progress` | Not yet supported |
 | `notifications/message` | Not yet supported |
 | `notifications/resources/updated` | Not yet supported |
