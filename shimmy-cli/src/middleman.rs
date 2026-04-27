@@ -20,11 +20,13 @@ use rmcp::{
     handler::server::tool::ToolRouter,
     model::{
         Annotated, CallToolRequestParams, CallToolResult, CancelledNotificationParam, ClientInfo,
-        ErrorCode, ErrorData, Extensions, GetPromptRequestParams, GetPromptResult, Implementation,
-        InitializeRequestParams, InitializeResult, JsonRpcRequest, JsonRpcVersion2_0,
-        ListPromptsResult, ListResourcesResult, ListToolsResult, Notification, NotificationNoParam,
-        PaginatedRequestParams, Prompt, ProtocolVersion, RawResource, ReadResourceRequestParams,
-        ReadResourceResult, Request, RequestId, ServerCapabilities, ServerInfo, Tool,
+        CompleteRequestParams, CompleteResult, ErrorCode, ErrorData, Extensions,
+        GetPromptRequestParams, GetPromptResult, Implementation, InitializeRequestParams,
+        InitializeResult, JsonRpcRequest, JsonRpcVersion2_0, ListPromptsResult,
+        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, Notification,
+        NotificationNoParam, PaginatedRequestParams, Prompt, ProtocolVersion, RawResource,
+        ReadResourceRequestParams, ReadResourceResult, Request, RequestId, ServerCapabilities,
+        ServerInfo, SetLevelRequestParams, SubscribeRequestParams, Tool, UnsubscribeRequestParams,
     },
     service::{NotificationContext, RequestContext, RunningService, ServiceError},
     tool_handler, tool_router,
@@ -416,18 +418,183 @@ impl ServerHandler for Middleman {
             self.shimmy_client
                 .send_to_shimmy_app("client/request", jsonrpc_request);
 
-            let list_resources_request = self
+            let list_resources_result = self
                 .get_service()?
                 .list_resources(request)
                 .await
                 .map_err(|err| convert_service_error_to_error_data(err))?;
-            let params = convert_to_json_object(&list_resources_request)?;
+            let params = convert_to_json_object(&list_resources_result)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
             self.shimmy_client
                 .send_to_shimmy_app("server/response", jsonrpc_response);
 
-            Ok(list_resources_request)
+            Ok(list_resources_result)
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+    }
+
+    async fn list_resource_templates(
+        &self,
+        request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        let final_result = async {
+            let params = match &request {
+                Some(paginate_params) => convert_to_json_object(paginate_params)?,
+                None => serde_json::Map::new(),
+            };
+            let list_resource_templates_request =
+                create_mcp_request("resources/templates/list", params);
+            let jsonrpc_request =
+                create_jsonrpc_request(context.id.clone(), list_resource_templates_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
+
+            let list_resource_templates_result = self
+                .get_service()?
+                .list_resource_templates(request)
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+            let params = convert_to_json_object(&list_resource_templates_result)?;
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
+
+            Ok(list_resource_templates_result)
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+    }
+
+    async fn subscribe(
+        &self,
+        request: SubscribeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<(), ErrorData> {
+        let final_result = async {
+            let params = convert_to_json_object(&request)?;
+            let subscribe_request = create_mcp_request("resources/subscribe", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), subscribe_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
+
+            let subscribe_result = self
+                .get_service()?
+                .subscribe(request)
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+            let params = serde_json::Map::new();
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
+
+            Ok(subscribe_result)
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+    }
+
+    async fn unsubscribe(
+        &self,
+        request: UnsubscribeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<(), ErrorData> {
+        let final_result = async {
+            let params = convert_to_json_object(&request)?;
+            let unsubscribe_request = create_mcp_request("resources/unsubscribe", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), unsubscribe_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
+
+            let unsubscribe_result = self
+                .get_service()?
+                .unsubscribe(request)
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+            let params = serde_json::Map::new();
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
+
+            Ok(unsubscribe_result)
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+    }
+
+    async fn complete(
+        &self,
+        request: CompleteRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CompleteResult, ErrorData> {
+        let final_result = async {
+            let params = convert_to_json_object(&request)?;
+            let complete_request = create_mcp_request("completion/complete", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), complete_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
+
+            let complete_result = self
+                .get_service()?
+                .complete(request)
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+            let params = convert_to_json_object(&complete_result)?;
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
+
+            Ok(complete_result)
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "server/response", final_result)
+    }
+
+    async fn set_level(
+        &self,
+        request: SetLevelRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<(), ErrorData> {
+        let final_result = async {
+            let params = convert_to_json_object(&request)?;
+            let set_level_request = create_mcp_request("logging/setLevel", params);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), set_level_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/request", jsonrpc_request);
+
+            let set_level_result = self
+                .get_service()?
+                .set_level(request)
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+            let params = serde_json::Map::new();
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/response", jsonrpc_response);
+
+            Ok(set_level_result)
         }
         .await;
 
@@ -448,18 +615,18 @@ impl ServerHandler for Middleman {
             self.shimmy_client
                 .send_to_shimmy_app("client/request", jsonrpc_request);
 
-            let read_resource_response = self
+            let read_resource_result = self
                 .get_service()?
                 .read_resource(request)
                 .await
                 .map_err(|err| convert_service_error_to_error_data(err))?;
-            let params = convert_to_json_object(&read_resource_response)?;
+            let params = convert_to_json_object(&read_resource_result)?;
             let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
 
             self.shimmy_client
                 .send_to_shimmy_app("server/response", jsonrpc_response);
 
-            Ok(read_resource_response)
+            Ok(read_resource_result)
         }
         .await;
 
@@ -506,7 +673,7 @@ impl ServerHandler for Middleman {
         let final_result = async {
             let params = serde_json::Map::new();
             let ping_request = create_mcp_request("ping", params);
-            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request.clone());
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), ping_request);
 
             self.shimmy_client
                 .send_to_shimmy_app("client/request", jsonrpc_request);

@@ -175,11 +175,11 @@ Shimmy proxies and inspects MCP protocol messages. Below is the current coverage
 | `resources/read` | Supported |
 | `prompts/list` | Supported |
 | `prompts/get` | Supported |
-| `resources/templates/list` | Not yet supported |
-| `resources/subscribe` | Not yet supported |
-| `resources/unsubscribe` | Not yet supported |
-| `completion/complete` | Not yet supported |
-| `logging/setLevel` | Not yet supported |
+| `resources/templates/list` | Supported |
+| `resources/subscribe` | Supported |
+| `resources/unsubscribe` | Supported |
+| `completion/complete` | Supported |
+| `logging/setLevel` | Supported |
 
 ### Client-to-Server Notifications
 
