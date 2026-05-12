@@ -24,9 +24,10 @@ use rmcp::{
         GetPromptRequestParams, GetPromptResult, Implementation, InitializeRequestParams,
         InitializeResult, JsonRpcRequest, JsonRpcVersion2_0, ListPromptsResult,
         ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, Notification,
-        NotificationNoParam, PaginatedRequestParams, Prompt, ProtocolVersion, RawResource,
-        ReadResourceRequestParams, ReadResourceResult, Request, RequestId, ServerCapabilities,
-        ServerInfo, SetLevelRequestParams, SubscribeRequestParams, Tool, UnsubscribeRequestParams,
+        NotificationNoParam, PaginatedRequestParams, ProgressNotificationParam, Prompt,
+        ProtocolVersion, RawResource, ReadResourceRequestParams, ReadResourceResult, Request,
+        RequestId, ServerCapabilities, ServerInfo, SetLevelRequestParams, SubscribeRequestParams,
+        Tool, UnsubscribeRequestParams,
     },
     service::{NotificationContext, RequestContext, RunningService, ServiceError},
     tool_handler, tool_router,
@@ -754,10 +755,9 @@ impl ServerHandler for Middleman {
         &self,
         notification: CancelledNotificationParam,
         _context: NotificationContext<RoleServer>,
-    ) -> () {
+    ) {
         let _: Result<(), ErrorData> = async {
-            let _ = self
-                .get_service()?
+            self.get_service()?
                 .notify_cancelled(notification.clone())
                 .await
                 .map_err(|err| convert_service_error_to_error_data(err))?;
@@ -766,6 +766,46 @@ impl ServerHandler for Middleman {
             let params = convert_to_json_object(notification)?;
             let cancel_notification = create_mcp_notification("notifications/cancelled", params);
             let jsonrpc_notification = create_jsonrpc_notification(cancel_notification);
+            self.shimmy_client
+                .send_to_shimmy_app("client/notification", jsonrpc_notification);
+            Ok(())
+        }
+        .await;
+    }
+
+    async fn on_progress(
+        &self,
+        notification: ProgressNotificationParam,
+        _context: NotificationContext<RoleServer>,
+    ) {
+        let _: Result<(), ErrorData> = async {
+            self.get_service()?
+                .notify_progress(notification.clone())
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+
+            // Only log the notification when it's delivered successfully
+            let params = convert_to_json_object(notification)?;
+            let progress_notification = create_mcp_notification("notifications/progress", params);
+            let jsonrpc_notification = create_jsonrpc_notification(progress_notification);
+            self.shimmy_client
+                .send_to_shimmy_app("client/notification", jsonrpc_notification);
+            Ok(())
+        }
+        .await;
+    }
+
+    async fn on_roots_list_changed(&self, _context: NotificationContext<RoleServer>) {
+        let _: Result<(), ErrorData> = async {
+            self.get_service()?
+                .notify_roots_list_changed()
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+
+            let params = serde_json::Map::new();
+            let roots_list_changed_notification =
+                create_mcp_notification("notifications/roots/list_changed", params);
+            let jsonrpc_notification = create_jsonrpc_notification(roots_list_changed_notification);
             self.shimmy_client
                 .send_to_shimmy_app("client/notification", jsonrpc_notification);
             Ok(())
