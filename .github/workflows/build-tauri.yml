@@ -1,9 +1,9 @@
-name: Build
+name: Build Tauri App
 
 on:
   push:
     tags:
-      - "v*"
+      - "shimmy-v*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -71,50 +71,8 @@ jobs:
           name: tauri-app-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/bundle/
 
-  build-cli:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            binary: shimmy-cli
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            binary: shimmy-cli
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            binary: shimmy-cli
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary: shimmy-cli.exe
-
-    runs-on: ${{ matrix.platform }}
-    name: CLI (${{ matrix.target }})
-
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2.9.1
-
-      - name: Build shimmy-cli
-        run: cargo build --release --package shimmy-cli --target ${{ matrix.target }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: shimmy-cli-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
-
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-tauri, build-cli]
+    needs: [build-tauri]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -128,16 +86,6 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release-assets
-          # Package CLI binaries with target name
-          for dir in artifacts/shimmy-cli-*/; do
-            target=$(basename "$dir" | sed 's/shimmy-cli-//')
-            find "$dir" -type f \( -name "shimmy-cli" -o -name "shimmy-cli.exe" \) | while read f; do
-              ext=""
-              [[ "$f" == *.exe ]] && ext=".exe"
-              cp "$f" "release-assets/shimmy-cli-${target}${ext}"
-            done
-          done
-          # Package Tauri app bundles with target name
           for dir in artifacts/tauri-app-*/; do
             target=$(basename "$dir" | sed 's/tauri-app-//')
             find "$dir" -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.msi" -o -name "*.nsis.exe" -o -name "*.exe" \) | while read f; do
@@ -151,5 +99,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          name: shimmy ${{ github.ref_name }}
           generate_release_notes: true
           files: release-assets/*
