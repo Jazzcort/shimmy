@@ -11,23 +11,23 @@ use crate::{error::ShimmyError, utils::create_mcp_request};
 use reqwest::{Client, Response};
 use rmcp::Peer;
 use rmcp::model::{
-    ClientRequest, ClientResult, ConstString, CreateElicitationRequest,
+    ClientRequest, ClientResult, ConstString, CreateElicitationRequest, CreateMessageRequest,
     ElicitationCreateRequestMethod, JsonRpcMessage, JsonRpcNotification, JsonRpcResponse,
-    PingRequest, PingRequestMethod, ServerRequest, ServerResult,
+    PingRequest, PingRequestMethod, RequestNoParam, ServerRequest, ServerResult,
 };
 use rmcp::{
     ClientHandler, RoleClient, RoleServer, ServerHandler, ServiceExt,
     handler::server::tool::ToolRouter,
     model::{
         Annotated, CallToolRequestParams, CallToolResult, CancelledNotificationParam, ClientInfo,
-        CompleteRequestParams, CompleteResult, ErrorCode, ErrorData, Extensions,
-        GetPromptRequestParams, GetPromptResult, Implementation, InitializeRequestParams,
-        InitializeResult, JsonRpcRequest, JsonRpcVersion2_0, ListPromptsResult,
-        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, Notification,
-        NotificationNoParam, PaginatedRequestParams, ProgressNotificationParam, Prompt,
-        ProtocolVersion, RawResource, ReadResourceRequestParams, ReadResourceResult, Request,
-        RequestId, ServerCapabilities, ServerInfo, SetLevelRequestParams, SubscribeRequestParams,
-        Tool, UnsubscribeRequestParams,
+        CompleteRequestParams, CompleteResult, CreateMessageRequestParams, CreateMessageResult,
+        ErrorCode, ErrorData, Extensions, GetPromptRequestParams, GetPromptResult, Implementation,
+        InitializeRequestParams, InitializeResult, JsonRpcRequest, JsonRpcVersion2_0,
+        ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListRootsResult,
+        ListToolsResult, Notification, NotificationNoParam, PaginatedRequestParams,
+        ProgressNotificationParam, Prompt, ProtocolVersion, RawResource, ReadResourceRequestParams,
+        ReadResourceResult, Request, RequestId, ServerCapabilities, ServerInfo,
+        SetLevelRequestParams, SubscribeRequestParams, Tool, UnsubscribeRequestParams,
     },
     service::{NotificationContext, RequestContext, RunningService, ServiceError},
     tool_handler, tool_router,
@@ -898,7 +898,7 @@ impl ClientHandler for McpClientService {
                 .await
                 .map_err(|err| convert_service_error_to_error_data(err))?
             {
-                let params = convert_to_json_object(result.clone())?;
+                let params = convert_to_json_object(&result)?;
                 let jsonrpc_response = create_jsonrpc_response(context.id.clone(), params);
                 self.shimmy_client
                     .send_to_shimmy_app("client/response", jsonrpc_response);
@@ -910,6 +910,71 @@ impl ClientHandler for McpClientService {
                     "Expect elicitation result, but got something else",
                 ))
             }
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "client/response", final_result)
+    }
+
+    async fn create_message(
+        &self,
+        params: CreateMessageRequestParams,
+        context: RequestContext<RoleClient>,
+    ) -> Result<CreateMessageResult, ErrorData> {
+        let final_result = async {
+            let params_obj = convert_to_json_object(&params)?;
+            let create_message_request = create_mcp_request("sampling/createMessage", params_obj);
+            let jsonrpc_request =
+                create_jsonrpc_request(context.id.clone(), create_message_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/request", jsonrpc_request);
+
+            let create_message_result = self
+                .get_service()?
+                .create_message(params)
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+
+            let result_obj = convert_to_json_object(&create_message_result)?;
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), result_obj);
+            self.shimmy_client
+                .send_to_shimmy_app("client/response", jsonrpc_response);
+
+            Ok(create_message_result)
+        }
+        .await;
+
+        self.shimmy_client
+            .pipe_mcp_error_if_any(context.id, "client/response", final_result)
+    }
+
+    async fn list_roots(
+        &self,
+        context: RequestContext<RoleClient>,
+    ) -> Result<ListRootsResult, ErrorData> {
+        let final_result = async {
+            let params_obj = serde_json::Map::new();
+            let list_roots_request = create_mcp_request("roots/list", params_obj);
+            let jsonrpc_request = create_jsonrpc_request(context.id.clone(), list_roots_request);
+
+            self.shimmy_client
+                .send_to_shimmy_app("server/request", jsonrpc_request);
+
+            let list_roots_result = self
+                .get_service()?
+                .list_roots()
+                .await
+                .map_err(|err| convert_service_error_to_error_data(err))?;
+
+            let result_object = convert_to_json_object(&list_roots_result)?;
+            let jsonrpc_response = create_jsonrpc_response(context.id.clone(), result_object);
+
+            self.shimmy_client
+                .send_to_shimmy_app("client/response", jsonrpc_response);
+
+            Ok(list_roots_result)
         }
         .await;
 
