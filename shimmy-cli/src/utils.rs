@@ -1,81 +1,39 @@
 use std::borrow::Cow;
 
 use rmcp::{
-    model::{
-        ErrorCode, ErrorData, Extensions, JsonObject, JsonRpcError, JsonRpcNotification,
-        JsonRpcRequest, JsonRpcResponse, JsonRpcVersion2_0, Notification, Request, RequestId,
-    },
+    model::{ErrorCode, ErrorData, NumberOrString, RequestId},
     service::ServiceError,
 };
 use serde::Serialize;
-use tokio::time::{Duration, sleep};
+use serde_json::{Value, json};
+use tokio::time::Duration;
 
-use crate::error::ShimmyError;
+use shimmy_common::common_structs::{Id, MCPError};
 
-pub fn create_mcp_request<S>(method: S, params: JsonObject) -> Request
-where
-    S: Into<String>,
-{
-    let mut req = Request::new(params);
-    req.method = method.into();
-    req
-}
-
-pub fn create_mcp_notification<S>(method: S, params: JsonObject) -> Notification
-where
-    S: Into<String>,
-{
-    let mut notif = Notification::new(params);
-    notif.method = method.into();
-    notif
-}
-
-pub fn create_jsonrpc_request(id: RequestId, request: Request) -> JsonRpcRequest {
-    JsonRpcRequest {
-        jsonrpc: JsonRpcVersion2_0,
-        id,
-        request,
+pub fn convert_request_id(id: &RequestId) -> Id {
+    match id {
+        NumberOrString::String(s) => Id::StringId(s.to_string()),
+        NumberOrString::Number(num) => Id::NumberId(*num),
     }
 }
 
-pub fn create_jsonrpc_response(id: RequestId, result: JsonObject) -> JsonRpcResponse {
-    JsonRpcResponse {
-        jsonrpc: JsonRpcVersion2_0,
-        id,
-        result,
-    }
+pub fn convert_error_data(error_data: ErrorData) -> MCPError {
+    MCPError::new(error_data.code.0, error_data.message, error_data.data)
 }
 
-pub fn create_jsonrpc_error(id: RequestId, error: ErrorData) -> JsonRpcError {
-    JsonRpcError {
-        jsonrpc: JsonRpcVersion2_0,
-        id,
-        error,
-    }
-}
-
-pub fn create_jsonrpc_notification(notification: Notification) -> JsonRpcNotification {
-    JsonRpcNotification {
-        jsonrpc: JsonRpcVersion2_0,
-        notification,
-    }
-}
-
-pub fn convert_to_json_object<S>(obj: S) -> Result<JsonObject, ErrorData>
+pub fn convert_to_json_value<S>(obj: S) -> Result<Value, ErrorData>
 where
     S: Serialize,
 {
-    let value = serde_json::to_value(obj)
-        .map_err(|err| convert_error_to_error_data(ErrorCode::PARSE_ERROR, err))?;
+    let res = serde_json::to_value(obj)
+        .map_err(|err| convert_error_to_error_data(ErrorCode::PARSE_ERROR, err));
 
-    if let serde_json::Value::Object(json_map) = value {
-        Ok(json_map)
-    } else {
-        Err(convert_text_to_error_data(
-            ErrorCode::PARSE_ERROR,
-            "Parsed failed: not a json map format",
-        ))
+    // Map unit type () to empty map object that follows MCP protocol as response with empty result
+    if let Ok(Value::Null) = &res {
+        return Ok(json!({}));
     }
+
+    res
 }
 
 pub fn convert_service_error_to_error_data(service_error: ServiceError) -> ErrorData {
