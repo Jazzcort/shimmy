@@ -21,6 +21,23 @@ pub fn convert_error_data(error_data: ErrorData) -> MCPError {
     MCPError::new(error_data.code.0, error_data.message, error_data.data)
 }
 
+pub fn convert_optional_params<S>(params: &Option<S>) -> Result<Option<Value>, ErrorData>
+where
+    S: Serialize,
+{
+    match params {
+        Some(p) => {
+            let value = convert_to_json_value(p)?;
+            if value.as_object().map_or(false, |m| m.is_empty()) {
+                Ok(None)
+            } else {
+                Ok(Some(value))
+            }
+        }
+        None => Ok(None),
+    }
+}
+
 pub fn convert_to_json_value<S>(obj: S) -> Result<Value, ErrorData>
 where
     S: Serialize,

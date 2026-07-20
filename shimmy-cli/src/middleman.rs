@@ -3,9 +3,9 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use crate::utils::{
-    convert_error_data, convert_error_to_error_data, convert_request_id,
-    convert_service_error_to_error_data, convert_text_to_error_data, convert_to_json_value,
-    sleep_for_seconds,
+    convert_error_data, convert_error_to_error_data, convert_optional_params,
+    convert_request_id, convert_service_error_to_error_data, convert_text_to_error_data,
+    convert_to_json_value, sleep_for_seconds,
 };
 use crate::error::ShimmyError;
 use reqwest::Client;
@@ -343,10 +343,7 @@ impl ServerHandler for Middleman {
         let id = convert_request_id(&context.id);
 
         let final_result = async {
-            let params = match &request {
-                Some(paginate_params) => Some(convert_to_json_value(paginate_params)?),
-                None => None,
-            };
+            let params = convert_optional_params(&request)?;
             let jsonrpc_request = MCPRequest::new(id.clone(), "tools/list", params);
 
             self.shimmy_client
@@ -413,10 +410,7 @@ impl ServerHandler for Middleman {
         let id = convert_request_id(&context.id);
 
         let final_result = async {
-            let params = match &request {
-                Some(inner) => Some(convert_to_json_value(inner)?),
-                None => None,
-            };
+            let params = convert_optional_params(&request)?;
             let jsonrpc_request = MCPRequest::new(id.clone(), "resources/list", params);
 
             self.shimmy_client
@@ -449,10 +443,7 @@ impl ServerHandler for Middleman {
         let id = convert_request_id(&context.id);
 
         let final_result = async {
-            let params = match &request {
-                Some(inner) => Some(convert_to_json_value(inner)?),
-                None => None,
-            };
+            let params = convert_optional_params(&request)?;
             let jsonrpc_request = MCPRequest::new(id.clone(), "resources/templates/list", params);
 
             self.shimmy_client
@@ -651,10 +642,7 @@ impl ServerHandler for Middleman {
         let id = convert_request_id(&context.id);
 
         let final_result = async {
-            let params = match &request {
-                Some(req) => Some(convert_to_json_value(req)?),
-                None => None,
-            };
+            let params = convert_optional_params(&request)?;
             let jsonrpc_request = MCPRequest::new(id.clone(), "prompts/list", params);
 
             self.shimmy_client
