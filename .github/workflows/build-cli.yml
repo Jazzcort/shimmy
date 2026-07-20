@@ -79,6 +79,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: shimmy-cli ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           generate_release_notes: true
           files: release-assets/*
